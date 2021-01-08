@@ -9,6 +9,9 @@ import { OpenAPIRouter, Request, ParsedRequest, Operation } from './router';
 import { OpenAPIValidator, ValidationResult, AjvCustomizer } from './validation';
 import OpenAPIUtils from './utils';
 
+import { performance } from 'perf_hooks';
+
+
 // alias Document to OpenAPIV3.Document
 export type Document = OpenAPIV3.Document;
 
@@ -169,6 +172,7 @@ export class OpenAPIBackend {
    */
   public async init() {
     try {
+      performance.mark('init')
       // parse the document
       if (this.quick) {
         // in quick mode we don't care when the document is ready
@@ -176,12 +180,14 @@ export class OpenAPIBackend {
       } else {
         await this.loadDocument();
       }
-
+      performance.mark('loadDocument')
+      performance.measure('loadDocument', 'init', 'loadDocument')
       if (!this.quick) {
         // validate the document
         this.validateDefinition();
       }
-
+      performance.mark('validateDefinition')
+      performance.measure('validateDefinition', 'loadDocument', 'validateDefinition')
       // dereference the document into definition (make sure not to copy)
       if (typeof this.inputDocument === 'string') {
         this.definition = await SwaggerParser.dereference(this.inputDocument, this.document || this.inputDocument);
@@ -198,8 +204,14 @@ export class OpenAPIBackend {
       }
     }
 
+    performance.mark('SwaggerParser')
+    performance.measure('SwaggerParser', 'validateDefinition', 'SwaggerParser')
+
     // initalize router with dereferenced definition
     this.router = new OpenAPIRouter({ definition: this.definition, apiRoot: this.apiRoot });
+
+    performance.mark('OpenAPIRouter')
+    performance.measure('OpenAPIRouter', 'SwaggerParser', 'OpenAPIRouter')
 
     // initalize validator with dereferenced definition
     if (this.validate !== false) {
@@ -211,6 +223,9 @@ export class OpenAPIBackend {
       });
     }
 
+    performance.mark('Validate')
+    performance.measure('Validate', 'OpenAPIRouter', 'Validate')
+
     // we are initalized
     this.initalized = true;
 
@@ -219,12 +234,18 @@ export class OpenAPIBackend {
       this.register(this.handlers);
     }
 
+    performance.mark('Register')
+    performance.measure('Register', 'Validate', 'Register')
+
     // register all security handlers
     if (this.securityHandlers) {
       for (const [name, handler] of Object.entries(this.securityHandlers)) {
         this.registerSecurityHandler(name, handler);
       }
     }
+
+    performance.mark('registerSecurityHandler')
+    performance.measure('registerSecurityHandler', 'Register', 'registerSecurityHandler')
 
     // return this instance
     return this;
