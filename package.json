@@ -1,5 +1,5 @@
 {
-  "name": "openapi-backend",
+  "name": "@fatsharkstudiosab/openapi-backend",
   "description": "Build, Validate, Route, Authenticate and Mock using OpenAPI definitions. Framework-agnostic",
   "version": "3.6.3",
   "author": "Viljami Kuosmanen <viljami@avoinsorsa.fi>",
@@ -18,13 +18,13 @@
     "lambda",
     "azure"
   ],
-  "homepage": "https://github.com/anttiviljami/openapi-backend",
+  "homepage": "https://github.com/FatsharkStudiosAB/openapi-backend",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anttiviljami/openapi-backend.git"
+    "url": "git+https://github.com/FatsharkStudiosAB/openapi-backend.git"
   },
   "bugs": {
-    "url": "https://github.com/anttiviljami/openapi-backend/issues"
+    "url": "https://github.com/FatsharkStudiosAB/openapi-backend/issues"
   },
   "main": "index.js",
   "types": "index.d.ts",
