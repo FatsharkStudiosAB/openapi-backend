@@ -66,6 +66,8 @@ export interface Options {
   apiRoot?: string;
   strict?: boolean;
   quick?: boolean;
+  dereferenceDoc?: boolean;
+  shouldValidateDefinition?: boolean;
   validate?: boolean | BoolPredicate;
   ajvOpts?: Ajv.Options;
   customizeAjv?: AjvCustomizer;
@@ -94,6 +96,8 @@ export class OpenAPIBackend {
 
   public strict: boolean;
   public quick: boolean;
+  public dereferenceDoc: boolean;
+  public shouldValidateDefinition: boolean;
   public validate: boolean | BoolPredicate;
 
   public ajvOpts: Ajv.Options;
@@ -128,6 +132,10 @@ export class OpenAPIBackend {
    * @param {boolean} opts.quick - quick startup, attempts to optimise startup; might break things (default: false)
    * @param {boolean} opts.validate - whether to validate requests with Ajv (default: true)
    * @param {boolean} opts.ajvOpts - default ajv opts to pass to the validator
+   * @param {boolean} opts.shouldValidateDefinition - true if API definition should be validated at startup
+   * @param {boolean} opts.dereferenceDoc - true if references in the document should be dereferenced at startup (if
+   *                                        set to false then document *must* be already dereferenced when passed to
+   *                                        the constructor)
    * @param {{ [operationId: string]: Handler | ErrorHandler }} opts.handlers - Operation handlers to be registered
    * @memberof OpenAPIBackend
    */
@@ -137,6 +145,8 @@ export class OpenAPIBackend {
       validate: true,
       strict: false,
       quick: false,
+      shouldValidateDefinition: false,
+      dereferenceDoc: true,
       ajvOpts: {},
       handlers: {},
       securityHandlers: {},
@@ -146,6 +156,8 @@ export class OpenAPIBackend {
     this.inputDocument = optsWithDefaults.definition;
     this.strict = optsWithDefaults.strict;
     this.quick = optsWithDefaults.quick;
+    this.dereferenceDoc = optsWithDefaults.dereferenceDoc;
+    this.shouldValidateDefinition = optsWithDefaults.shouldValidateDefinition;
     this.validate = optsWithDefaults.validate;
     this.handlers = { ...optsWithDefaults.handlers }; // Copy to avoid mutating passed object
     this.securityHandlers = { ...optsWithDefaults.securityHandlers }; // Copy to avoid mutating passed object
@@ -177,17 +189,26 @@ export class OpenAPIBackend {
         await this.loadDocument();
       }
 
-      if (!this.quick) {
+      if (this.shouldValidateDefinition && !this.quick) {
         // validate the document
         this.validateDefinition();
       }
 
-      // dereference the document into definition (make sure not to copy)
-      if (typeof this.inputDocument === 'string') {
-        this.definition = await SwaggerParser.dereference(this.inputDocument, this.document || this.inputDocument);
+      if (this.dereferenceDoc) {
+        // optionally dereference the document into definition (make sure not to copy)
+        if (typeof this.inputDocument === 'string') {
+          this.definition = await SwaggerParser.dereference(this.inputDocument, this.document || this.inputDocument);
+        } else {
+          this.definition = await SwaggerParser.dereference(this.document || this.inputDocument);
+        }
       } else {
-        this.definition = await SwaggerParser.dereference(this.document || this.inputDocument);
+        if (typeof this.inputDocument === 'string') {
+          throw Error('Cannot avoid dereference with a basepath')
+        } else {
+          this.definition = this.document || this.inputDocument;
+        }
       }
+
     } catch (err) {
       if (this.strict) {
         // in strict-mode, fail hard and re-throw the error
@@ -205,6 +226,7 @@ export class OpenAPIBackend {
     if (this.validate !== false) {
       this.validator = new OpenAPIValidator({
         definition: this.definition,
+        lazyInit: true,
         ajvOpts: this.ajvOpts,
         customizeAjv: this.customizeAjv,
         router: this.router,
