@@ -1,6 +1,15 @@
 import * as _ from 'lodash';
+import { OpenAPIV3 } from 'openapi-types';
+import * as SwaggerParser from 'swagger-parser';
+// alias Document to OpenAPIV3.Document
+type Document = OpenAPIV3.Document;
 
 export default class OpenAPIUtils {
+
+  public static async dereferenceDocument(definition: Document): Promise<Document> {
+     return SwaggerParser.dereference(definition);
+  }
+
   /**
    * Finds the value for a given key (status code) in an object,
    * based on the OpenAPI specification for patterned field.

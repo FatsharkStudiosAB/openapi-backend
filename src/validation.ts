@@ -148,6 +148,7 @@ export class OpenAPIValidator {
    */
   constructor(opts: {
     definition: Document;
+    lazyInit: boolean
     ajvOpts?: Ajv.Options;
     router?: OpenAPIRouter;
     customizeAjv?: AjvCustomizer;
@@ -165,24 +166,22 @@ export class OpenAPIValidator {
     // initalize router
     this.router = opts.router || new OpenAPIRouter({ definition: this.definition });
 
-    // get defined api operations
-    const operations = this.router.getOperations();
-
-    // build request validation schemas for api operations
     this.requestValidators = {};
-    operations.map(this.buildRequestValidatorsForOperation.bind(this));
-
-    // build response validation schemas for api operations
     this.responseValidators = {};
-    operations.map(this.buildResponseValidatorForOperation.bind(this));
-
-    // build response validation schemas for api operations, per status code
     this.statusBasedResponseValidators = {};
-    operations.map(this.buildStatusBasedResponseValidatorForOperation.bind(this));
-
-    // build response header validation schemas for api operations
     this.responseHeadersValidators = {};
-    operations.map(this.buildResponseHeadersValidatorForOperation.bind(this));
+    if (!opts.lazyInit) {
+      // get defined api operations
+      const operations = this.router.getOperations();
+      // build request validation schemas for api operations
+      operations.map(this.buildRequestValidatorsForOperation.bind(this));
+      // build response validation schemas for api operations
+      operations.map(this.buildResponseValidatorForOperation.bind(this));
+      // build response validation schemas for api operations, per status code
+      operations.map(this.buildStatusBasedResponseValidatorForOperation.bind(this));
+      // build response header validation schemas for api operations
+      operations.map(this.buildResponseHeadersValidatorForOperation.bind(this));
+    }
   }
 
   /**
@@ -266,10 +265,12 @@ export class OpenAPIValidator {
     }
 
     // validate parameters against each pre-compiled schema
-    for (const validate of validators) {
-      validate(parameters);
-      if (validate.errors) {
-        result.errors.push(...validate.errors);
+    if (validators) {
+      for (const validate of validators) {
+        validate(parameters);
+        if (validate.errors) {
+          result.errors.push(...validate.errors);
+        }
       }
     }
 
@@ -372,7 +373,7 @@ export class OpenAPIValidator {
     }
 
     const { operationId } = op;
-    const validateMap: ResponseHeadersValidateFunctionMap = this.getResponseHeadersValidatorForOperation(operationId);
+    const validateMap = this.getResponseHeadersValidatorForOperation(operationId);
 
     if (validateMap) {
       let validateForStatus: { [setMatchType: string]: Ajv.ValidateFunction };
@@ -405,15 +406,25 @@ export class OpenAPIValidator {
     return result;
   }
 
+  private getOperation(operationId: string) : Operation | undefined {
+    const operation = this.router.getOperations().filter((op) => op.operationId === operationId)
+    return operation.length === 0 ? undefined : operation[0]
+  }
+
   /**
    * Get an array of request validator functions for an operation by operationId
+   * (lazily intialize)
    *
    * @param {string} operationId
    * @returns {Ajv.ValidateFunction[]}
    * @memberof OpenAPIRequestValidator
    */
-  public getRequestValidatorsForOperation(operationId: string) {
-    return this.requestValidators[operationId];
+  public getRequestValidatorsForOperation(operationId: string): Ajv.ValidateFunction[] | undefined {
+    const validators = this.requestValidators[operationId];
+    if (!validators) {
+      return this.buildRequestValidatorsForOperation(this.getOperation(operationId))
+    }
+    return validators
   }
 
   /**
@@ -444,10 +455,10 @@ export class OpenAPIValidator {
    * @param {Operation} operation
    * @memberof OpenAPIRequestValidator
    */
-  public buildRequestValidatorsForOperation(operation: Operation): void {
+  public buildRequestValidatorsForOperation(operation: Operation | undefined): Ajv.ValidateFunction[] | undefined {
     if (!operation || !operation.operationId) {
       // no operationId, don't register a validator
-      return;
+      return undefined;
     }
     const { operationId } = operation;
 
@@ -541,17 +552,23 @@ export class OpenAPIValidator {
     const paramsValidator = this.getAjv(ValidationContext.Params, { coerceTypes: true });
     validators.push(paramsValidator.compile(paramsSchema));
     this.requestValidators[operationId] = validators;
+    return validators
   }
 
   /**
    * Get response validator function for an operation by operationId
+   * (lazily intialize)
    *
    * @param {string} operationId
    * @returns {Ajv.ValidateFunction}
    * @memberof OpenAPIRequestValidator
    */
-  public getResponseValidatorForOperation(operationId: string) {
-    return this.responseValidators[operationId];
+  public getResponseValidatorForOperation(operationId: string): Ajv.ValidateFunction | undefined {
+    const validators = this.responseValidators[operationId];
+    if (!validators) {
+      return this.buildResponseValidatorForOperation(this.getOperation(operationId))
+    }
+    return validators
   }
 
   /**
@@ -560,14 +577,14 @@ export class OpenAPIValidator {
    * @param {Operation} operation
    * @memberof OpenAPIRequestValidator
    */
-  public buildResponseValidatorForOperation(operation: Operation): void {
+  public buildResponseValidatorForOperation(operation: Operation | undefined): Ajv.ValidateFunction | undefined {
     if (!operation || !operation.operationId) {
       // no operationId, don't register a validator
-      return;
+      return undefined;
     }
     if (!operation.responses) {
       // operation has no responses, don't register a validator
-      return;
+      return undefined;
     }
 
     const { operationId } = operation;
@@ -589,18 +606,25 @@ export class OpenAPIValidator {
     // compile the validator function and register to responseValidators
     const schema = { oneOf: responseSchemas };
     const responseValidator = this.getAjv(ValidationContext.Response);
-    this.responseValidators[operationId] = responseValidator.compile(schema);
+    const validators = responseValidator.compile(schema);
+    this.responseValidators[operationId] = validators;
+    return validators;
   }
 
   /**
    * Get response validator function for an operation by operationId
+   * (lazily intialize)
    *
    * @param {string} operationId
    * @returns {Object.<Ajv.ValidateFunction>}}
    * @memberof OpenAPIRequestValidator
    */
-  public getStatusBasedResponseValidatorForOperation(operationId: string): StatusBasedResponseValidatorsFunctionMap {
-    return this.statusBasedResponseValidators[operationId];
+  public getStatusBasedResponseValidatorForOperation(operationId: string): StatusBasedResponseValidatorsFunctionMap | undefined {
+    const validators = this.statusBasedResponseValidators[operationId];
+    if (!validators) {
+      return this.buildStatusBasedResponseValidatorForOperation(this.getOperation(operationId))
+    }
+    return validators
   }
 
   /**
@@ -609,14 +633,14 @@ export class OpenAPIValidator {
    * @param {Operation} operation
    * @memberof OpenAPIRequestValidator
    */
-  public buildStatusBasedResponseValidatorForOperation(operation: Operation): void {
+  public buildStatusBasedResponseValidatorForOperation(operation: Operation | undefined): StatusBasedResponseValidatorsFunctionMap | undefined {
     if (!operation || !operation.operationId) {
       // no operationId, don't register a validator
-      return;
+      return undefined;
     }
     if (!operation.responses) {
       // operation has no responses, don't register a validator
-      return;
+      return undefined;
     }
     const { operationId } = operation;
 
@@ -632,18 +656,24 @@ export class OpenAPIValidator {
       return null;
     });
 
-    this.statusBasedResponseValidators[operationId as string] = responseValidators;
+    this.statusBasedResponseValidators[operationId] = responseValidators;
+    return responseValidators
   }
 
   /**
    * Get response validator function for an operation by operationId
+   * (lazily intialize)
    *
    * @param {string} operationId
    * @returns {Object.<Object.<Ajv.ValidateFunction>>}}
    * @memberof OpenAPIRequestValidator
    */
-  public getResponseHeadersValidatorForOperation(operationId: string): ResponseHeadersValidateFunctionMap {
-    return this.responseHeadersValidators[operationId];
+  public getResponseHeadersValidatorForOperation(operationId: string): ResponseHeadersValidateFunctionMap | undefined {
+    const validators = this.responseHeadersValidators[operationId];
+    if (!validators) {
+      return this.buildResponseHeadersValidatorForOperation(this.getOperation(operationId))
+    }
+    return validators
   }
 
   /**
@@ -652,14 +682,14 @@ export class OpenAPIValidator {
    * @param {Operation} operation
    * @memberof OpenAPIRequestValidator
    */
-  public buildResponseHeadersValidatorForOperation(operation: Operation): void {
+  public buildResponseHeadersValidatorForOperation(operation: Operation | undefined): ResponseHeadersValidateFunctionMap | undefined {
     if (!operation || !operation.operationId) {
       // no operationId, don't register a validator
-      return;
+      return undefined;
     }
     if (!operation.responses) {
       // operation has no responses, don't register a validator
-      return;
+      return undefined;
     }
 
     const { operationId } = operation;
@@ -735,5 +765,6 @@ export class OpenAPIValidator {
     });
 
     this.responseHeadersValidators[operationId] = headerValidators;
+    return headerValidators;
   }
 }

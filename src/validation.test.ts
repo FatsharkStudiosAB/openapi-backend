@@ -45,6 +45,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
+        lazyInit: false,
       });
 
       test('passes validation for GET /pets/1', async () => {
@@ -112,6 +113,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
+        lazyInit: false,
       });
 
       test('passes validation for GET /pets/1', async () => {
@@ -152,6 +154,7 @@ describe('OpenAPIValidator', () => {
       const validator = new OpenAPIValidator({
         definition,
         router: new OpenAPIRouter({ definition, apiRoot: '/v1' }),
+        lazyInit: false,
       });
 
       test('passes validation for GET /v1/pets/1', async () => {
@@ -192,6 +195,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
+        lazyInit: false,
       });
 
       test('passes validation for GET /pets', async () => {
@@ -269,6 +273,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
+        lazyInit: false,
       });
 
       test('passes validation for GET /pets?limit=10', async () => {
@@ -331,6 +336,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
+        lazyInit: false,
       });
 
       test('passes validation for GET /secret, x-api-key:abcd0123', async () => {
@@ -410,6 +416,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
+        lazyInit: false,
       });
 
       test('passes validation for POST /pets with full object', async () => {
@@ -594,6 +601,7 @@ describe('OpenAPIValidator', () => {
           },
         },
       },
+      lazyInit: false,
     });
 
     test('passes validation with valid 200 response object and operationId getPetById', async () => {
@@ -859,6 +867,7 @@ describe('OpenAPIValidator', () => {
           },
         },
       },
+      lazyInit: false,
     });
 
     test('passes validation with valid header object and operationId listPets, no options', async () => {
@@ -1178,6 +1187,7 @@ describe('OpenAPIValidator', () => {
               ...meta,
               paths,
             },
+            lazyInit: false,
           });
         expect(construct()).toBeInstanceOf(OpenAPIValidator);
         expect(console.warn).not.toBeCalled();
@@ -1190,6 +1200,7 @@ describe('OpenAPIValidator', () => {
             ...meta,
             paths,
           },
+          lazyInit: false,
         });
         const valid = validator.validateRequest({
           path: '/pets',
@@ -1214,6 +1225,7 @@ describe('OpenAPIValidator', () => {
             ...meta,
             paths,
           },
+          lazyInit: false,
         });
         const valid = validator.validateRequest({
           path: '/pets',
@@ -1232,6 +1244,7 @@ describe('OpenAPIValidator', () => {
             ...meta,
             paths,
           },
+          lazyInit: false,
         });
         const valid = validator.validateRequest({
           path: '/pets',
@@ -1250,6 +1263,7 @@ describe('OpenAPIValidator', () => {
             ...meta,
             paths,
           },
+          lazyInit: false,
         });
         const valid = validator.validateRequest({
           path: '/pets',
@@ -1347,16 +1361,18 @@ describe('OpenAPIValidator', () => {
         } = paths;
         const warn = console.warn;
         console.warn = jest.fn();
-        const construct = () =>
-          new OpenAPIValidator({
+        const construct = () => {
+          const validator = new OpenAPIValidator({
             definition: {
               ...meta,
               paths: {
                 '/pets': { get: getPets },
               },
             },
+            lazyInit: false,
             customizeAjv,
           });
+        };
         expect(construct).toThrow();
         console.warn = warn; // reset console.warn
       });
@@ -1375,6 +1391,7 @@ describe('OpenAPIValidator', () => {
                 '/pets/{id}': { get: getPet },
               },
             },
+            lazyInit: false,
             customizeAjv,
           });
         expect(construct()).toBeInstanceOf(OpenAPIValidator);
@@ -1396,6 +1413,7 @@ describe('OpenAPIValidator', () => {
                 '/pets': { post: createPet },
               },
             },
+            lazyInit: false,
             customizeAjv,
           });
         expect(construct()).toBeInstanceOf(OpenAPIValidator);
@@ -1412,6 +1430,7 @@ describe('OpenAPIValidator', () => {
               ...meta,
               paths,
             },
+            lazyInit: false,
           });
         expect(construct()).toBeInstanceOf(OpenAPIValidator);
         expect(console.warn).toBeCalled();
