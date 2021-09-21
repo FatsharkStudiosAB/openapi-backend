@@ -291,10 +291,12 @@ export class OpenAPIRouter {
             in: 'query',
           });
           if (parameter) {
+            const paramQueryString = query[parameter.name] ?? queryString
+
             if (parameter.content && parameter.content['application/json']) {
               query[queryParam] = JSON.parse(query[queryParam]);
-            } else if (parameter.explode === false && queryString) {
-              let commaQueryString = queryString;
+            } else if (parameter.explode === false && paramQueryString) {
+              let commaQueryString = paramQueryString;
               if (parameter.style === 'spaceDelimited') {
                 commaQueryString = commaQueryString.replace(/\ /g, ',').replace(/\%20/g, ',');
               }
@@ -302,7 +304,7 @@ export class OpenAPIRouter {
                 commaQueryString = commaQueryString.replace(/\|/g, ',').replace(/\%7C/g, ',');
               }
               // use comma parsing e.g. &a=1,2,3
-              const commaParsed = parseQuery(commaQueryString, { comma: true });
+              const commaParsed = parseQuery(`${parameter.name}=${commaQueryString}`, { comma: true });
               query[queryParam] = commaParsed[queryParam];
             }
           }

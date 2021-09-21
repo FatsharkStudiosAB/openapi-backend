@@ -1,7 +1,7 @@
 {
   "name": "@fatsharkstudiosab/openapi-backend",
   "description": "Build, Validate, Route, Authenticate and Mock using OpenAPI definitions. Framework-agnostic",
-  "version": "4.2.0-fs1",
+  "version": "4.2.0-fs2",
   "author": "Viljami Kuosmanen <viljami@avoinsorsa.fi>",
   "license": "MIT",
   "keywords": [
