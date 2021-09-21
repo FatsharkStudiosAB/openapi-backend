@@ -115,7 +115,7 @@ describe('OpenAPIBackend', () => {
 
   test('throws an error when initalised with an invalid document in strict mode', async () => {
     const invalid: any = { invalid: 'not openapi' };
-    const api = new OpenAPIBackend({ definition: invalid, strict: true });
+    const api = new OpenAPIBackend({ definition: invalid, strict: true, shouldValidateDefinition: true });
     await expect(api.init()).rejects.toThrowError();
   });
 
@@ -123,7 +123,7 @@ describe('OpenAPIBackend', () => {
     const invalid: any = { invalid: 'not openapi' };
     const warn = console.warn;
     console.warn = jest.fn();
-    const api = new OpenAPIBackend({ definition: invalid, strict: false });
+    const api = new OpenAPIBackend({ definition: invalid, strict: false, shouldValidateDefinition: true });
     await api.init();
     expect(console.warn).toBeCalledTimes(1);
     console.warn = warn; // reset console.warn
