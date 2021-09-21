@@ -9,9 +9,9 @@ describe('serverless framework example', () => {
   let client: AxiosInstance;
 
   beforeAll(async () => {
-    client = axios.create({ baseURL: 'http://localhost:9000', validateStatus: () => true });
-    start = spawn('npm', ['start'], { cwd: __dirname, detached: true });
-    await waitOn({ resources: ['tcp:localhost:9000'] });
+    client = axios.create({ baseURL: 'http://localhost:3000/local', validateStatus: () => true });
+    start = spawn('npm', ['start'], { cwd: __dirname, detached: true, stdio: 'inherit' });
+    await waitOn({ resources: ['tcp:localhost:3000'] });
   });
 
   afterAll(() => process.kill(-start.pid));

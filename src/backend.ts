@@ -1,19 +1,19 @@
 import * as _ from 'lodash';
-import * as Ajv from 'ajv';
+import type { Options as AjvOpts } from 'ajv';
 import OpenAPISchemaValidator from 'openapi-schema-validator';
-import * as SwaggerParser from 'swagger-parser';
-import { OpenAPIV3 } from 'openapi-types';
-import { mock } from 'mock-json-schema';
+import { parse as parseJSONSchema, dereference } from '@apidevtools/json-schema-ref-parser';
+import { OpenAPIV3_1 } from 'openapi-types';
+import { mock, SchemaLike } from 'mock-json-schema';
 
 import { OpenAPIRouter, Request, ParsedRequest, Operation } from './router';
 import { OpenAPIValidator, ValidationResult, AjvCustomizer } from './validation';
 import OpenAPIUtils from './utils';
 
-// alias Document to OpenAPIV3.Document
-export type Document = OpenAPIV3.Document;
+// alias Document to OpenAPIV3_1.Document
+export type Document = OpenAPIV3_1.Document;
 
 // alias SecurityRequirement
-export type SecurityRequirement = OpenAPIV3.SecurityRequirementObject;
+export type SecurityRequirement = OpenAPIV3_1.SecurityRequirementObject;
 
 /**
  * Security / Authorization context for requests
@@ -69,7 +69,7 @@ export interface Options {
   dereferenceDoc?: boolean;
   shouldValidateDefinition?: boolean;
   validate?: boolean | BoolPredicate;
-  ajvOpts?: Ajv.Options;
+  ajvOpts?: AjvOpts;
   customizeAjv?: AjvCustomizer;
   handlers?: {
     notFound?: Handler;
@@ -99,8 +99,9 @@ export class OpenAPIBackend {
   public dereferenceDoc: boolean;
   public shouldValidateDefinition: boolean;
   public validate: boolean | BoolPredicate;
+  public ignoreTrailingSlashes: boolean;
 
-  public ajvOpts: Ajv.Options;
+  public ajvOpts: AjvOpts;
   public customizeAjv: AjvCustomizer | undefined;
 
   public handlers: { [operationId: string]: Handler };
@@ -131,6 +132,7 @@ export class OpenAPIBackend {
    * @param {boolean} opts.strict - strict mode, throw errors or warn on OpenAPI spec validation errors (default: false)
    * @param {boolean} opts.quick - quick startup, attempts to optimise startup; might break things (default: false)
    * @param {boolean} opts.validate - whether to validate requests with Ajv (default: true)
+   * @param {boolean} opts.ignoreTrailingSlashes - whether to ignore trailing slashes when routing (default: true)
    * @param {boolean} opts.ajvOpts - default ajv opts to pass to the validator
    * @param {boolean} opts.shouldValidateDefinition - true if API definition should be validated at startup
    * @param {boolean} opts.dereferenceDoc - true if references in the document should be dereferenced at startup (if
@@ -147,6 +149,7 @@ export class OpenAPIBackend {
       quick: false,
       shouldValidateDefinition: false,
       dereferenceDoc: true,
+      ignoreTrailingSlashes: true,
       ajvOpts: {},
       handlers: {},
       securityHandlers: {},
@@ -159,6 +162,7 @@ export class OpenAPIBackend {
     this.dereferenceDoc = optsWithDefaults.dereferenceDoc;
     this.shouldValidateDefinition = optsWithDefaults.shouldValidateDefinition;
     this.validate = optsWithDefaults.validate;
+    this.ignoreTrailingSlashes = optsWithDefaults.ignoreTrailingSlashes;
     this.handlers = { ...optsWithDefaults.handlers }; // Copy to avoid mutating passed object
     this.securityHandlers = { ...optsWithDefaults.securityHandlers }; // Copy to avoid mutating passed object
     this.ajvOpts = optsWithDefaults.ajvOpts;
@@ -197,10 +201,10 @@ export class OpenAPIBackend {
       if (this.dereferenceDoc) {
         // optionally dereference the document into definition (make sure not to copy)
         if (typeof this.inputDocument === 'string') {
-          this.definition = await SwaggerParser.dereference(this.inputDocument, this.document || this.inputDocument);
-        } else {
-          this.definition = await SwaggerParser.dereference(this.document || this.inputDocument);
-        }
+            this.definition = (await dereference(this.inputDocument)) as Document;
+          } else {
+            this.definition = (await dereference(this.document || this.inputDocument)) as Document;
+          }
       } else {
         if (typeof this.inputDocument === 'string') {
           throw Error('Cannot avoid dereference with a basepath')
@@ -220,16 +224,20 @@ export class OpenAPIBackend {
     }
 
     // initalize router with dereferenced definition
-    this.router = new OpenAPIRouter({ definition: this.definition, apiRoot: this.apiRoot });
+    this.router = new OpenAPIRouter({
+      definition: this.definition,
+      apiRoot: this.apiRoot,
+      ignoreTrailingSlashes: this.ignoreTrailingSlashes,
+    });
 
     // initalize validator with dereferenced definition
     if (this.validate !== false) {
       this.validator = new OpenAPIValidator({
         definition: this.definition,
-        lazyInit: true,
         ajvOpts: this.ajvOpts,
         customizeAjv: this.customizeAjv,
         router: this.router,
+        lazyCompileValidators: Boolean(this.quick), // optimise startup by lazily compiling Ajv validators
       });
     }
 
@@ -258,7 +266,7 @@ export class OpenAPIBackend {
    * @memberof OpenAPIBackend
    */
   public async loadDocument() {
-    this.document = await SwaggerParser.parse(this.inputDocument);
+    this.document = (await parseJSONSchema(this.inputDocument)) as Document;
     return this.document;
   }
 
@@ -290,7 +298,7 @@ export class OpenAPIBackend {
       // match operation (routing)
       try {
         context.operation = this.router.matchOperation(req, true);
-      } catch (err) {
+      } catch (err: any) {
         let handler = this.handlers['404'] || this.handlers['notFound'];
         if (err.message.startsWith('405')) {
           // 405 method not allowed
@@ -550,12 +558,12 @@ export class OpenAPIBackend {
 
     // resolve status code
     const { responses } = operation;
-    let response: OpenAPIV3.ResponseObject;
+    let response: OpenAPIV3_1.ResponseObject;
 
     if (opts.code && responses[opts.code]) {
       // 1. check for provided code opt (default: 200)
       status = Number(opts.code);
-      response = responses[opts.code] as OpenAPIV3.ResponseObject;
+      response = responses[opts.code] as OpenAPIV3_1.ResponseObject;
     } else {
       // 2. check for a default response
       const res = OpenAPIUtils.findDefaultStatusCodeMatch(responses);
@@ -580,7 +588,7 @@ export class OpenAPIBackend {
 
     // if example argument was provided, locate and return its value
     if (opts.example && examples) {
-      const exampleObject = examples[opts.example] as OpenAPIV3.ExampleObject;
+      const exampleObject = examples[opts.example] as OpenAPIV3_1.ExampleObject;
       if (exampleObject && exampleObject.value) {
         return { status, mock: exampleObject.value };
       }
@@ -593,13 +601,13 @@ export class OpenAPIBackend {
 
     // pick the first example from examples
     if (examples) {
-      const exampleObject = examples[Object.keys(examples)[0]] as OpenAPIV3.ExampleObject;
+      const exampleObject = examples[Object.keys(examples)[0]] as OpenAPIV3_1.ExampleObject;
       return { status, mock: exampleObject.value };
     }
 
     // mock using json schema
     if (schema) {
-      return { status, mock: mock(schema as OpenAPIV3.SchemaObject) };
+      return { status, mock: mock(schema as SchemaLike) };
     }
 
     // we should never get here, schema or an example must be provided

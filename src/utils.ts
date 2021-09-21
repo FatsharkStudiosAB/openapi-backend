@@ -1,14 +1,11 @@
 import * as _ from 'lodash';
-import { OpenAPIV3 } from 'openapi-types';
+import { OpenAPIV3_1 } from 'openapi-types';
 import * as SwaggerParser from 'swagger-parser';
 // alias Document to OpenAPIV3.Document
-type Document = OpenAPIV3.Document;
+type Document = OpenAPIV3_1.Document;
+import { Operation } from './router';
 
 export default class OpenAPIUtils {
-
-  public static async dereferenceDocument(definition: Document): Promise<Document> {
-     return SwaggerParser.dereference(definition);
-  }
 
   /**
    * Finds the value for a given key (status code) in an object,
@@ -81,5 +78,21 @@ export default class OpenAPIUtils {
       status: Number(code),
       res: obj[code],
     };
+  }
+
+  /**
+   * Get operationId, (or generate one) for an operation
+   *
+   * @static
+   * @param {Operation} operation
+   * @returns {string} OperationId of the given operation
+   * @memberof OpenAPIUtils
+   */
+  public static getOperationId(operation: Operation): string {
+    if (!operation?.operationId) {
+      // TODO: generate a default substitute for operationId
+      return `unknown`;
+    }
+    return operation.operationId;
   }
 }
