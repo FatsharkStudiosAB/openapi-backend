@@ -1,7 +1,7 @@
 {
   "name": "@fatsharkstudiosab/openapi-backend",
   "description": "Build, Validate, Route, Authenticate and Mock using OpenAPI definitions. Framework-agnostic",
-  "version": "4.2.0",
+  "version": "4.2.0-fs1",
   "author": "Viljami Kuosmanen <viljami@avoinsorsa.fi>",
   "license": "MIT",
   "keywords": [
@@ -48,7 +48,8 @@
     "mock-json-schema": "^1.0.7",
     "openapi-schema-validator": "^9.2.0",
     "openapi-types": "^9.2.0",
-    "qs": "^6.9.3"
+    "qs": "^6.9.3",
+    "swagger-parser": "^10.0.3"
   },
   "devDependencies": {
     "@types/cookie": "^0.3.2",
@@ -61,6 +62,7 @@
     "markdown-toc": "^1.2.0",
     "prettier": "^2.0.4",
     "source-map-support": "^0.5.10",
+    "swagger-parser": "^10.0.3",
     "ts-jest": "^27.0.2",
     "tslint": "^6.1.1",
     "tslint-microsoft-contrib": "^6.2.0",
