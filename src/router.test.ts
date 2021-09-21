@@ -1,14 +1,14 @@
 import { OpenAPIRouter, Operation } from './router';
 import { OpenAPIBackend, Context } from './backend';
-import { OpenAPIV3 } from 'openapi-types';
+import { OpenAPIV3_1 } from 'openapi-types';
 
 const headers = { accept: 'application/json' };
 
-const responses: OpenAPIV3.ResponsesObject = {
+const responses: OpenAPIV3_1.ResponsesObject = {
   200: { description: 'ok' },
 };
 
-const pathId: OpenAPIV3.ParameterObject = {
+const pathId: OpenAPIV3_1.ParameterObject = {
   name: 'id',
   in: 'path',
   required: true,
@@ -17,7 +17,7 @@ const pathId: OpenAPIV3.ParameterObject = {
   },
 };
 
-const hobbyId: OpenAPIV3.ParameterObject = {
+const hobbyId: OpenAPIV3_1.ParameterObject = {
   name: 'hobbyId',
   in: 'path',
   required: true,
@@ -26,7 +26,7 @@ const hobbyId: OpenAPIV3.ParameterObject = {
   },
 };
 
-const queryLimit: OpenAPIV3.ParameterObject = {
+const queryLimit: OpenAPIV3_1.ParameterObject = {
   name: 'limit',
   in: 'query',
   schema: {
@@ -36,7 +36,7 @@ const queryLimit: OpenAPIV3.ParameterObject = {
   },
 };
 
-const queryFilter: OpenAPIV3.ParameterObject = {
+const queryFilter: OpenAPIV3_1.ParameterObject = {
   name: 'filter',
   in: 'query',
   content: {
@@ -59,7 +59,7 @@ const queryFilter: OpenAPIV3.ParameterObject = {
   },
 };
 
-const definition: OpenAPIV3.Document = {
+const definition: OpenAPIV3_1.Document = {
   openapi: '3.0.0',
   info: {
     title: 'api',
@@ -166,8 +166,24 @@ describe('OpenAPIRouter', () => {
       expect(parsedRequest.params).toEqual({ id: '123' });
     });
 
-    test('parses query string', () => {
+    test('parses query string from path prop', () => {
       const request = { path: '/pets?limit=10', method: 'get', headers };
+
+      const parsedRequest = api.parseRequest(request);
+
+      expect(parsedRequest.query).toEqual({ limit: '10' });
+    });
+
+    test('parses query string from query prop', () => {
+      const request = { path: '/pets', query: 'limit=10', method: 'get', headers };
+
+      const parsedRequest = api.parseRequest(request);
+
+      expect(parsedRequest.query).toEqual({ limit: '10' });
+    });
+
+    test('parses query string from query prop starting with ?', () => {
+      const request = { path: '/pets', query: '?limit=10', method: 'get', headers };
 
       const parsedRequest = api.parseRequest(request);
 
@@ -253,6 +269,11 @@ describe('OpenAPIRouter', () => {
       expect(operationId).toEqual('getPets');
     });
 
+    test('matches GET /pets/ with trailing slash', async () => {
+      const { operationId } = api.matchOperation({ path: '/pets/', method: 'get', headers }) as Operation;
+      expect(operationId).toEqual('getPets');
+    });
+
     test('matches POST /pets', async () => {
       const { operationId } = api.matchOperation({ path: '/pets', method: 'post', headers }) as Operation;
       expect(operationId).toEqual('createPet');
@@ -295,6 +316,25 @@ describe('OpenAPIRouter', () => {
 
     test('does not match GET /v2/pets', async () => {
       const operation = api.matchOperation({ path: '/v2/pets', method: 'get', headers }) as Operation;
+      expect(operation).toBe(undefined);
+    });
+  });
+
+  describe('.matchOperation with ignoreTrailingSlashes=false', () => {
+    const api = new OpenAPIRouter({ definition, ignoreTrailingSlashes: false });
+
+    test('matches GET /', async () => {
+      const { operationId } = api.matchOperation({ path: '/', method: 'get', headers }) as Operation;
+      expect(operationId).toEqual('apiRoot');
+    });
+
+    test('matches GET /pets', async () => {
+      const { operationId } = api.matchOperation({ path: '/pets', method: 'get', headers }) as Operation;
+      expect(operationId).toEqual('getPets');
+    });
+
+    test('does not match GET /pets/ with trailing slash', async () => {
+      const operation = api.matchOperation({ path: '/pets/', method: 'get', headers }) as Operation;
       expect(operation).toBe(undefined);
     });
   });
@@ -442,7 +482,7 @@ describe('OpenAPIBackend', () => {
       expect(dummyHandlers['getPets']).toBeCalled();
 
       const contextArg = dummyHandlers['getPets'].mock.calls.slice(-1)[0][0];
-      expect(contextArg.request).toMatchObject({ method: 'get', path: '/pets', headers });
+      expect(contextArg.request).toMatchObject({ method: 'get', path: '/pets/', headers });
       expect(contextArg.operation.operationId).toEqual('getPets');
       expect(contextArg.validation.errors).toBeFalsy();
     });
@@ -453,7 +493,7 @@ describe('OpenAPIBackend', () => {
       expect(dummyHandlers['getPets']).toBeCalled();
 
       const contextArg = dummyHandlers['getPets'].mock.calls.slice(-1)[0][0];
-      expect(contextArg.request).toMatchObject({ method: 'get', path: '/pets', query: { limit: '10' }, headers });
+      expect(contextArg.request).toMatchObject({ method: 'get', path: '/pets/', query: { limit: '10' }, headers });
       expect(contextArg.operation.operationId).toEqual('getPets');
       expect(contextArg.validation.errors).toBeFalsy();
     });

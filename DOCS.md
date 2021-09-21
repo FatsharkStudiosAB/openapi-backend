@@ -6,72 +6,29 @@
 - [Installation](#installation)
 - [Class OpenAPIBackend](#class-openapibackend)
   - [new OpenAPIBackend(opts)](#new-openapibackendopts)
-    - [Parameter: opts](#parameter-opts)
-    - [Parameter: opts.definition](#parameter-optsdefinition)
-    - [Parameter: opts.apiRoot](#parameter-optsapiroot)
-    - [Parameter: opts.strict](#parameter-optsstrict)
-    - [Parameter: opts.quick](#parameter-optsquick)
-    - [Parameter: opts.validate](#parameter-optsvalidate)
-    - [Parameter: opts.ajvOpts](#parameter-optsajvopts)
-    - [Parameter: opts.customizeAjv(originalAjv, ajvOpts, validationContext)](#parameter-optscustomizeajvoriginalajv-ajvopts-validationcontext)
-    - [Parameter: opts.handlers](#parameter-optshandlers)
   - [.init()](#init)
   - [.handleRequest(req, ...handlerArgs)](#handlerequestreq-handlerargs)
-    - [Parameter: req](#parameter-req)
-    - [Parameter: handlerArgs](#parameter-handlerargs)
   - [.validateRequest()](#validaterequest)
   - [.validateResponse()](#validateresponse)
   - [.validateResponseHeaders()](#validateresponseheaders)
   - [.matchOperation()](#matchoperation)
   - [.register(operationId, handler)](#registeroperationid-handler)
-    - [Parameter: operationId](#parameter-operationid)
-    - [Parameter: handler](#parameter-handler)
   - [.register(handlers)](#registerhandlers)
-    - [Parameter: opts.handlers](#parameter-optshandlers)
   - [.mockResponseForOperation(operationId, opts?)](#mockresponseforoperationoperationid-opts)
-    - [Parameter: operationId](#parameter-operationid)
-    - [Parameter: opts](#parameter-opts)
-    - [Parameter: opts.responseStatus](#parameter-optsresponsestatus)
-    - [Parameter: opts.mediaType](#parameter-optsmediatype)
-    - [Parameter: opts.example](#parameter-optsexample)
   - [.registerSecurityHandler(name, handler)](#registersecurityhandlername-handler)
-    - [Parameter: name](#parameter-name)
-    - [Parameter: handler](#parameter-handler)
   - [.router](#router)
   - [.validator](#validator)
 - [Class OpenAPIRouter](#class-openapirouter)
   - [new OpenAPIRouter(opts)](#new-openapirouteropts)
-    - [Parameter: opts](#parameter-opts)
-    - [Parameter: opts.definition](#parameter-optsdefinition)
-    - [Parameter: opts.apiRoot](#parameter-optsapiroot)
   - [.matchOperation(req)](#matchoperationreq)
-    - [Parameter: req](#parameter-req)
   - [.getOperations()](#getoperations)
   - [.getOperation(operationId)](#getoperationoperationid)
-    - [Parameter: operationId](#parameter-operationid)
   - [.parseRequest(req, operation?)](#parserequestreq-operation)
-    - [Parameter: req](#parameter-req)
-    - [Parameter: operation](#parameter-operation)
 - [Class OpenAPIValidator](#class-openapivalidator)
   - [new OpenAPIValidator(opts)](#new-openapivalidatoropts)
-    - [Parameter: opts](#parameter-opts)
-    - [Parameter: opts.definition](#parameter-optsdefinition)
-    - [Parameter: opts.ajvOpts](#parameter-optsajvopts)
-    - [Parameter: opts.router](#parameter-optsrouter)
-    - [Parameter: opts.customizeAjv(originalAjv, ajvOpts, validationContext)](#parameter-optscustomizeajvoriginalajv-ajvopts-validationcontext)
   - [.validateRequest(req, operation?)](#validaterequestreq-operation)
-    - [Parameter: req](#parameter-req)
-    - [Parameter: operation](#parameter-operation)
   - [.validateResponse(res, operation, statusCode?)](#validateresponseres-operation-statuscode)
-    - [Parameter: res](#parameter-res)
-    - [Parameter: operation](#parameter-operation)
-    - [Parameter: statusCode](#parameter-statuscode)
   - [.validateResponseHeaders(headers, operation, opts?)](#validateresponseheadersheaders-operation-opts)
-    - [Parameter: headers](#parameter-headers)
-    - [Parameter: operation](#parameter-operation)
-    - [Parameter: opts](#parameter-opts)
-    - [Parameter: opts.statusCode](#parameter-optsstatuscode)
-    - [Parameter: opts.setMatchType](#parameter-optssetmatchtype)
 - [Operation Handlers](#operation-handlers)
   - [validationFail Handler](#validationfail-handler)
   - [notFound Handler](#notfound-handler)
@@ -152,6 +109,7 @@ const api = new OpenAPIBackend({
   strict: true,
   quick: false,
   validate: true,
+  ignoreTrailingSlashes: true,
   ajvOpts: { unknownFormats: true },
   customizeAjv: () => new Ajv(),
 });
@@ -183,7 +141,7 @@ Type: `boolean`
 
 Optional. Quick startup. Attempts to optimize startup time by skipping and deferring some parts.
 
-Warning: might break things. (default: false)
+This setting is recommended to optimize cold starts in Serverless Function environments such as AWS Lambda / Azure Functions / GCP Cloud Functions.
 
 Type: `boolean`
 
@@ -193,11 +151,17 @@ Optional. Enable or disable request validation (default: true)
 
 Type: `boolean`
 
+#### Parameter: opts.ignoreTrailingSlashes
+
+Optional. Whether to ignore trailing slashes when routing (default: true)
+
+Type: `boolean`
+
 #### Parameter: opts.ajvOpts
 
 Optional. The default AJV options to use for validation. See [available options](https://ajv.js.org/#options)
 
-Type: `Ajv.Options`
+Type: `AjvOpts`
 
 #### Parameter: opts.customizeAjv(originalAjv, ajvOpts, validationContext)
 
@@ -233,7 +197,7 @@ Initalizes the OpenAPIBackend instace for use.
 1. Marks member property `initalized` to true
 1. Registers all [Operation Handlers](#operation-handlers) passed in constructor options
 
-The `init()` method should be caAled right after creating a new instance of OpenAPIBackend. Although for ease of use,
+The `init()` method should be called right after creating a new instance of OpenAPIBackend. Although for ease of use,
 some methods like `handleRequest()` will call the method if the initalized member property is set to false.
 
 Returns the initalized OpenAPI backend instance.
@@ -464,6 +428,7 @@ Example:
 const router = new OpenAPIRouter({
   definition: api.document,
   apiRoot: '/',
+  ignoreTrailingSlashes: true,
 });
 ```
 
@@ -479,7 +444,13 @@ Type: `Document`
 
 #### Parameter: opts.apiRoot
 
-The root URI of your api. All paths will be matched relative to apiRoot (default: "/")
+Optional. The root URI of your api. All paths will be matched relative to apiRoot (default: "/")
+
+Type: `string`
+
+#### Parameter: opts.ignoreTrailingSlashes
+
+Optional. Whether to ignore trailing slashes when routing (default: true)
 
 Type: `string`
 
@@ -588,6 +559,7 @@ const validator = new OpenAPIValidator({
   definition: api.document,
   router: new OpenAPIRouter()
   ajvOpts: { unknownFormats: true },
+  lazyCompileValidators: false,
   customizeAjv: (originalAjv, ajvOpts, validationContext) => new Ajv(),
 });
 ```
@@ -622,13 +594,21 @@ Type: `Document`
 
 Optional. The default AJV options to use for validation. See [available options](https://ajv.js.org/#options)
 
-Type: `Ajv.Options`
+Type: `AjvOpts`
 
 #### Parameter: opts.router
 
 Optional. Passed instance of OpenAPIRouter. Will create new instance from definition object if not passed.
 
 Type: [`OpenAPIRouter`](#class-openapirouter)
+
+#### Parameter: opts.lazyCompileValidators
+
+Optional. When set to `true` skips precompiling Ajv validators and compiles only when needed. Useful for optimizing for init time e.g. in Lambda.
+
+This option is applied when the [OpenAPIBackend `quick` parameter](#parameter-optsquick) is set to `true`.
+
+Type: `Boolean`
 
 #### Parameter: opts.customizeAjv(originalAjv, ajvOpts, validationContext)
 
@@ -885,7 +865,7 @@ api.register('notImplemented', notImplementedHandler);
 
 The `unauthorizedHandler` handler gets called by `.handleRequest()` if security
 requirements are not met after checking [Security Requirements](https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.0.md#securityRequirementObject)
-and calling their [Security Sandlers'](#security-handlers).
+and calling their [Security Handlers](#security-handlers).
 
 HINT: You should probably return a 401 or 403 code from this handler and
 instruct the client to authenticate.

@@ -1,21 +1,54 @@
-import * as Ajv from 'ajv';
+import Ajv from 'ajv';
 import { OpenAPIRouter, OpenAPIValidator } from './index';
-import { OpenAPIV3 } from 'openapi-types';
+import { OpenAPIV3_1 } from 'openapi-types';
 import { SchemaLike } from 'mock-json-schema';
 import { SetMatchType } from './backend';
-import { ValidationContext } from './validation';
+import { dereference } from '@apidevtools/json-schema-ref-parser';
+import * as path from 'path';
+import * as _ from 'lodash';
+const testsDir = path.join(__dirname, '..', '__tests__');
+const circularRefPath = path.join(testsDir, 'resources', 'refs.openapi.json');
 
 const headers = { accept: 'application/json' };
 
-const meta = {
+const meta: OpenAPIV3_1.Document = {
   openapi: '3.0.0',
   info: {
     title: 'api',
     version: '1.0.0',
   },
+  paths: {},
 };
 
-describe('OpenAPIValidator', () => {
+const validBTree = {
+  left: {
+    left: null,
+    right: null,
+    value: 0,
+  },
+  right: {
+    left: null,
+    right: {
+      left: null,
+      right: null,
+      value: 3,
+    },
+    value: 2,
+  },
+  value: 1,
+};
+const invalidBTree = {
+  left: null,
+  right: null,
+  value: 'not a number',
+};
+
+let circularRefDefinition: any;
+beforeAll(async () => {
+  circularRefDefinition = await dereference(circularRefPath);
+});
+
+describe.each([{}, { lazyCompileValidators: true }])('OpenAPIValidator with opts %j', (constructorOpts) => {
   describe('.validateRequest', () => {
     describe('path params in path base object', () => {
       const validator = new OpenAPIValidator({
@@ -45,7 +78,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
-        lazyInit: false,
+        ...constructorOpts,
       });
 
       test('passes validation for GET /pets/1', async () => {
@@ -113,7 +146,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
-        lazyInit: false,
+        ...constructorOpts,
       });
 
       test('passes validation for GET /pets/1', async () => {
@@ -128,7 +161,7 @@ describe('OpenAPIValidator', () => {
     });
 
     describe('path params with custom apiRoot', () => {
-      const definition: OpenAPIV3.Document = {
+      const definition: OpenAPIV3_1.Document = {
         ...meta,
         paths: {
           '/pets/{id}': {
@@ -154,7 +187,7 @@ describe('OpenAPIValidator', () => {
       const validator = new OpenAPIValidator({
         definition,
         router: new OpenAPIRouter({ definition, apiRoot: '/v1' }),
-        lazyInit: false,
+        ...constructorOpts,
       });
 
       test('passes validation for GET /v1/pets/1', async () => {
@@ -195,7 +228,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
-        lazyInit: false,
+        ...constructorOpts,
       });
 
       test('passes validation for GET /pets', async () => {
@@ -273,7 +306,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
-        lazyInit: false,
+        ...constructorOpts,
       });
 
       test('passes validation for GET /pets?limit=10', async () => {
@@ -336,7 +369,7 @@ describe('OpenAPIValidator', () => {
             },
           },
         },
-        lazyInit: false,
+        ...constructorOpts,
       });
 
       test('passes validation for GET /secret, x-api-key:abcd0123', async () => {
@@ -368,7 +401,8 @@ describe('OpenAPIValidator', () => {
     });
 
     describe('request payloads', () => {
-      const petSchema: SchemaLike = {
+      let validator: OpenAPIValidator;
+      const petSchema: OpenAPIV3_1.SchemaObject = {
         type: 'object',
         additionalProperties: false,
         properties: {
@@ -376,47 +410,48 @@ describe('OpenAPIValidator', () => {
             type: 'string',
           },
           age: {
-            type: 'integer',
-            nullable: true,
+            type: ['integer', 'null'],
           },
         },
         required: ['name'],
       };
-
-      const validator = new OpenAPIValidator({
-        definition: {
-          ...meta,
-          paths: {
-            '/pets': {
-              post: {
-                operationId: 'createPet',
-                responses: { 200: { description: 'ok' } },
-                requestBody: {
-                  content: {
-                    'application/json': {
-                      schema: petSchema,
+      beforeAll(() => {
+        validator = new OpenAPIValidator({
+          definition: {
+            ...meta,
+            paths: {
+              '/pets': {
+                post: {
+                  operationId: 'createPet',
+                  responses: { 200: { description: 'ok' } },
+                  requestBody: {
+                    content: {
+                      'application/json': {
+                        schema: petSchema,
+                      },
+                    },
+                  },
+                },
+                put: {
+                  operationId: 'replacePet',
+                  responses: { 200: { description: 'ok' } },
+                  requestBody: {
+                    content: {
+                      'application/json': {
+                        schema: petSchema,
+                      },
+                      'application/xml': {
+                        example: '<Pet><name>string</name></Pet>',
+                      },
                     },
                   },
                 },
               },
-              put: {
-                operationId: 'replacePet',
-                responses: { 200: { description: 'ok' } },
-                requestBody: {
-                  content: {
-                    'application/json': {
-                      schema: petSchema,
-                    },
-                    'application/xml': {
-                      example: '<Pet><name>string</name></Pet>',
-                    },
-                  },
-                },
-              },
+              ...circularRefDefinition.paths,
             },
+            ...constructorOpts,
           },
-        },
-        lazyInit: false,
+        });
       });
 
       test('passes validation for POST /pets with full object', async () => {
@@ -442,6 +477,26 @@ describe('OpenAPIValidator', () => {
           },
         });
         expect(valid.errors).toBeFalsy();
+      });
+
+      test('passes validation for POST /trees with tree of numbers (recursive structure)', async () => {
+        const valid = validator.validateRequest({
+          path: '/trees',
+          method: 'post',
+          headers,
+          body: validBTree,
+        });
+        expect(valid.errors).toBeFalsy();
+      });
+
+      test('fails validation for POST /trees with tree of strings (recursive structure)', async () => {
+        const valid = validator.validateRequest({
+          path: '/trees',
+          method: 'post',
+          headers,
+          body: invalidBTree,
+        });
+        expect(valid.errors).toHaveLength(1);
       });
 
       test('passes validation for POST /pets with nullable age', async () => {
@@ -601,7 +656,7 @@ describe('OpenAPIValidator', () => {
           },
         },
       },
-      lazyInit: false,
+      ...constructorOpts,
     });
 
     test('passes validation with valid 200 response object and operationId getPetById', async () => {
@@ -867,7 +922,7 @@ describe('OpenAPIValidator', () => {
           },
         },
       },
-      lazyInit: false,
+      ...constructorOpts,
     });
 
     test('passes validation with valid header object and operationId listPets, no options', async () => {
@@ -1130,7 +1185,7 @@ describe('OpenAPIValidator', () => {
 
   describe('OAS formats', () => {
     describe('in request', () => {
-      const paths: OpenAPIV3.PathsObject = {
+      const paths: OpenAPIV3_1.PathsObject = {
         '/pets': {
           post: {
             operationId: 'createPet',
@@ -1187,7 +1242,7 @@ describe('OpenAPIValidator', () => {
               ...meta,
               paths,
             },
-            lazyInit: false,
+            ...constructorOpts,
           });
         expect(construct()).toBeInstanceOf(OpenAPIValidator);
         expect(console.warn).not.toBeCalled();
@@ -1200,7 +1255,7 @@ describe('OpenAPIValidator', () => {
             ...meta,
             paths,
           },
-          lazyInit: false,
+          ...constructorOpts,
         });
         const valid = validator.validateRequest({
           path: '/pets',
@@ -1225,7 +1280,7 @@ describe('OpenAPIValidator', () => {
             ...meta,
             paths,
           },
-          lazyInit: false,
+          ...constructorOpts,
         });
         const valid = validator.validateRequest({
           path: '/pets',
@@ -1244,7 +1299,7 @@ describe('OpenAPIValidator', () => {
             ...meta,
             paths,
           },
-          lazyInit: false,
+          ...constructorOpts,
         });
         const valid = validator.validateRequest({
           path: '/pets',
@@ -1263,7 +1318,7 @@ describe('OpenAPIValidator', () => {
             ...meta,
             paths,
           },
-          lazyInit: false,
+          ...constructorOpts,
         });
         const valid = validator.validateRequest({
           path: '/pets',
@@ -1277,10 +1332,12 @@ describe('OpenAPIValidator', () => {
       });
     });
   });
+});
 
+describe('OpenAPIValidator', () => {
   describe('customizeAjv', () => {
     describe('using custom formats', () => {
-      const paths: OpenAPIV3.PathsObject = {
+      const paths: OpenAPIV3_1.PathsObject = {
         '/pets/{id}': {
           get: {
             operationId: 'getPet',
@@ -1342,23 +1399,8 @@ describe('OpenAPIValidator', () => {
         },
       };
 
-      const customizeAjv = (ajv: Ajv.Ajv, ajvOpts: Ajv.Options, context: ValidationContext) => {
-        if (context === ValidationContext.Response) {
-          // return vanilla Ajv for params validation
-          return new Ajv();
-        }
-        if (context === ValidationContext.Params) {
-          // return overridden custom formats
-          return new Ajv({ ...ajvOpts, unknownFormats: ['custom'] });
-        }
-        // otherwise return original ajv
-        return ajv;
-      };
-
       test('customised Ajv should throw error for unknown formats in response', () => {
-        const {
-          '/pets': { get: getPets },
-        } = paths;
+        const getPets = paths?.['/pets']?.get;
         const warn = console.warn;
         console.warn = jest.fn();
         const construct = () => {
@@ -1369,8 +1411,7 @@ describe('OpenAPIValidator', () => {
                 '/pets': { get: getPets },
               },
             },
-            lazyInit: false,
-            customizeAjv,
+            customizeAjv: () => new Ajv({ strict: true }),
           });
         };
         expect(construct).toThrow();
@@ -1378,9 +1419,7 @@ describe('OpenAPIValidator', () => {
       });
 
       test('customised Ajv should ignore unknown formats in params', () => {
-        const {
-          '/pets/{id}': { get: getPet },
-        } = paths;
+        const getPet = paths?.['/pets']?.get;
         const warn = console.warn;
         console.warn = jest.fn();
         const construct = () =>
@@ -1391,8 +1430,7 @@ describe('OpenAPIValidator', () => {
                 '/pets/{id}': { get: getPet },
               },
             },
-            lazyInit: false,
-            customizeAjv,
+            customizeAjv: (_ajv, ajvOpts) => new Ajv({ ...ajvOpts, formats: { custom: true } }),
           });
         expect(construct()).toBeInstanceOf(OpenAPIValidator);
         expect(console.warn).toBeCalledTimes(0);
@@ -1400,9 +1438,7 @@ describe('OpenAPIValidator', () => {
       });
 
       test('customised Ajv should warn about unknown formats in requestBody', () => {
-        const {
-          '/pets': { post: createPet },
-        } = paths;
+        const createPet = paths?.['/pets']?.post;
         const warn = console.warn;
         console.warn = jest.fn();
         const construct = () =>
@@ -1413,8 +1449,7 @@ describe('OpenAPIValidator', () => {
                 '/pets': { post: createPet },
               },
             },
-            lazyInit: false,
-            customizeAjv,
+            customizeAjv: (_ajv, ajvOpts) => new Ajv({ ...ajvOpts }),
           });
         expect(construct()).toBeInstanceOf(OpenAPIValidator);
         expect(console.warn).toBeCalled();
@@ -1430,7 +1465,6 @@ describe('OpenAPIValidator', () => {
               ...meta,
               paths,
             },
-            lazyInit: false,
           });
         expect(construct()).toBeInstanceOf(OpenAPIValidator);
         expect(console.warn).toBeCalled();

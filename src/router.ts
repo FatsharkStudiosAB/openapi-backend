@@ -1,21 +1,21 @@
 import * as _ from 'lodash';
-import { OpenAPIV3 } from 'openapi-types';
+import type { OpenAPIV3_1 } from 'openapi-types';
 import bath from 'bath-es5';
 import * as cookie from 'cookie';
 import { parse as parseQuery } from 'qs';
 import { Parameters } from 'bath-es5/_/types';
 
-// alias Document to OpenAPIV3.Document
-type Document = OpenAPIV3.Document;
+// alias Document to OpenAPIV3_1.Document
+type Document = OpenAPIV3_1.Document;
 
 /**
  * OAS Operation Object containing the path and method so it can be placed in a flat array of operations
  *
  * @export
  * @interface Operation
- * @extends {OpenAPIV3.OperationObject}
+ * @extends {OpenAPIV3_1.OperationObject}
  */
-export interface Operation extends OpenAPIV3.OperationObject {
+export interface Operation extends OpenAPIV3_1.OperationObject {
   path: string;
   method: string;
 }
@@ -57,6 +57,8 @@ export class OpenAPIRouter {
   public definition: Document;
   public apiRoot: string;
 
+  private ignoreTrailingSlashes: boolean;
+
   /**
    * Creates an instance of OpenAPIRouter
    *
@@ -65,9 +67,10 @@ export class OpenAPIRouter {
    * @param {string} opts.apiRoot - the root URI of the api. all paths are matched relative to apiRoot
    * @memberof OpenAPIRouter
    */
-  constructor(opts: { definition: Document; apiRoot?: string }) {
+  constructor(opts: { definition: Document; apiRoot?: string; ignoreTrailingSlashes?: boolean }) {
     this.definition = opts.definition;
     this.apiRoot = opts.apiRoot || '/';
+    this.ignoreTrailingSlashes = opts.ignoreTrailingSlashes ?? true;
   }
 
   /**
@@ -153,15 +156,15 @@ export class OpenAPIRouter {
       .flatMap(([path, pathBaseObject]) => {
         const methods = _.pick(pathBaseObject, ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']);
         return _.entries(methods).map(([method, operation]) => {
-          const op = operation as OpenAPIV3.OperationObject;
+          const op = operation as OpenAPIV3_1.OperationObject;
           return {
             ...op,
             path,
             method,
             // append the path base object's parameters to the operation's parameters
             parameters: [
-              ...((op.parameters as OpenAPIV3.ParameterObject[]) || []),
-              ...((pathBaseObject.parameters as OpenAPIV3.ParameterObject[]) || []), // path base object parameters
+              ...((op.parameters as OpenAPIV3_1.ParameterObject[]) || []),
+              ...((pathBaseObject?.parameters as OpenAPIV3_1.ParameterObject[]) || []), // path base object parameters
             ],
             // operation-specific security requirement override global requirements
             security: op.security || this.definition.security || [],
@@ -185,35 +188,53 @@ export class OpenAPIRouter {
   /**
    * Normalises request:
    * - http method to lowercase
-   * - path leading slash 👍
-   * - path trailing slash 👎
-   * - path query string 👎
+   * - remove path leading slash
+   * - remove path query string
    *
    * @export
    * @param {Request} req
    * @returns {Request}
    */
   public normalizeRequest(req: Request): Request {
-    return {
-      ...req,
-      path: (req.path || '')
-        .trim()
-        .split('?')[0] // remove query string
-        .replace(/\/+$/, '') // remove trailing slash
-        .replace(/^\/*/, '/'), // add leading slash
-      method: req.method.trim().toLowerCase(),
-    };
+    let path = req.path?.trim() || '';
+
+    // add leading prefix to path
+    if (!path.startsWith('/')) {
+      path = `/${path}`;
+    }
+
+    // remove query string from path
+    path = path.split('?')[0];
+
+    // normalize method to lowercase
+    const method = req.method.trim().toLowerCase();
+
+    return { ...req, path, method };
   }
 
   /**
-   * Normalises path for matching: strips apiRoot prefix from the path.
+   * Normalises path for matching: strips apiRoot prefix from the path
+   *
+   * Also depending on configuration, will remove trailing slashes
    *
    * @export
    * @param {string} path
    * @returns {string}
    */
-  public normalizePath(path: string) {
-    return path.replace(new RegExp(`^${this.apiRoot}/?`), '/');
+  public normalizePath(pathInput: string) {
+    let path = pathInput.trim();
+
+    // strip apiRoot from path
+    if (path.startsWith(this.apiRoot)) {
+      path = path.replace(new RegExp(`^${this.apiRoot}/?`), '/');
+    }
+
+    // remove trailing slashes from path if ignoreTrailingSlashes = true
+    while (this.ignoreTrailingSlashes && path.length > 1 && path.endsWith('/')) {
+      path = path.substr(0, path.length - 1);
+    }
+
+    return path;
   }
 
   /**
@@ -247,8 +268,8 @@ export class OpenAPIRouter {
     const cookieHeader = headers['cookie'];
     const cookies = cookie.parse(_.flatten([cookieHeader]).join('; '));
 
-    // get query string from path
-    const queryString = req.path.split('?')[1];
+    // parse query
+    const queryString = typeof req.query === 'string' ? req.query.replace('?', '') : req.path.split('?')[1];
     const query = typeof req.query === 'object' ? _.cloneDeep(req.query) : parseQuery(queryString);
 
     // normalize
@@ -265,7 +286,7 @@ export class OpenAPIRouter {
       // parse query parameters with specified style for parameter
       for (const queryParam in query) {
         if (query[queryParam]) {
-          const parameter = _.find((operation.parameters as OpenAPIV3.ParameterObject[]) || [], {
+          const parameter = _.find((operation.parameters as OpenAPIV3_1.ParameterObject[]) || [], {
             name: queryParam,
             in: 'query',
           });
