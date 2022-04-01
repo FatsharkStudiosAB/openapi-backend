@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '14'
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v3.1.0
         with:
           python-version: '3.x'
       - run: pip install aws-sam-cli
