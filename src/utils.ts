@@ -1,17 +1,15 @@
 // library code, any is fine
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
 import * as _ from 'lodash';
 import type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
 import { dereference } from 'swagger-parser';
 import { Operation } from './router';
-
 // alias Document to OpenAPIV3_1.Document
 type Document = OpenAPIV3_1.Document | OpenAPIV3.Document;
 
 export default class OpenAPIUtils {
   public static async dereferenceDocument(definition: Document): Promise<Document> {
-    return dereference(definition) as Promise<Document>;
+    return dereference(definition as any) as Promise<Document>;
   }
   /**
    * Finds the value for a given key (status code) in an object,
