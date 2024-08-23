@@ -1,19 +1,25 @@
+// library code, any is fine
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import * as _ from 'lodash';
 import type { Options as AjvOpts } from 'ajv';
 import OpenAPISchemaValidator from 'openapi-schema-validator';
-import { parse as parseJSONSchema, dereference } from '@apidevtools/json-schema-ref-parser';
-import { OpenAPIV3_1 } from 'openapi-types';
+import { parse as parseJSONSchema, dereference } from './refparser';
+import { dereferenceSync } from 'dereference-json-schema';
+
+import { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
 import { mock, SchemaLike } from 'mock-json-schema';
 
-import { OpenAPIRouter, Request, ParsedRequest, Operation } from './router';
+import { OpenAPIRouter, Request, ParsedRequest, Operation, UnknownParams } from './router';
 import { OpenAPIValidator, ValidationResult, AjvCustomizer } from './validation';
 import OpenAPIUtils from './utils';
 
 // alias Document to OpenAPIV3_1.Document
-export type Document = OpenAPIV3_1.Document;
+export type Document = OpenAPIV3_1.Document | OpenAPIV3.Document;
+export type PickVersionElement<D extends Document, V30, V31> = D extends OpenAPIV3_1.Document ? V31 : V30;
 
 // alias SecurityRequirement
-export type SecurityRequirement = OpenAPIV3_1.SecurityRequirementObject;
+export type SecurityRequirement = OpenAPIV3_1.SecurityRequirementObject | OpenAPIV3.SecurityRequirementObject;
 
 /**
  * Security / Authorization context for requests
@@ -27,20 +33,35 @@ export interface SecurityContext extends SecurityHandlerResults {
 
 /**
  * Passed context built for request. Passed as first argument for all handlers.
- *
- * @export
- * @interface Context
  */
-export interface Context {
-  api: OpenAPIBackend;
-  request: ParsedRequest;
-  operation: Operation;
+export interface Context<
+  RequestBody = any,
+  Params = UnknownParams,
+  Query = UnknownParams,
+  Headers = UnknownParams,
+  Cookies = UnknownParams,
+  D extends Document = Document,
+> {
+  api: OpenAPIBackend<D>;
+  request: ParsedRequest<RequestBody, Params, Query, Headers, Cookies>;
+  operation: Operation<D>;
   validation: ValidationResult;
   security: SecurityHandlerResults;
   response: any;
 }
 
-export type Handler = (context: Context, ...args: any[]) => any | Promise<any>;
+/**
+ * A handler for an operation with request Context and passed arguments from handleRequest
+ */
+export type Handler<
+  RequestBody = any,
+  Params = UnknownParams,
+  Query = UnknownParams,
+  Headers = UnknownParams,
+  Cookies = UnknownParams,
+  D extends Document = Document,
+> = (context: Context<RequestBody, Params, Query, Headers, Cookies, D>, ...args: any[]) => any | Promise<any>;
+
 export type BoolPredicate = (context: Context, ...args: any[]) => boolean;
 
 /**
@@ -61,8 +82,8 @@ export enum SetMatchType {
  * @export
  * @interface Options
  */
-export interface Options {
-  definition: Document | string;
+export interface Options<D extends Document = Document> {
+  definition: D | string;
   apiRoot?: string;
   strict?: boolean;
   quick?: boolean;
@@ -77,7 +98,9 @@ export interface Options {
     validationFail?: Handler;
     [handler: string]: Handler | undefined;
   };
-  securityHandlers?: {};
+  securityHandlers?: {
+    [handler: string]: Handler | undefined;
+  };
 }
 
 /**
@@ -86,10 +109,10 @@ export interface Options {
  * @export
  * @class OpenAPIBackend
  */
-export class OpenAPIBackend {
-  public document: Document;
-  public inputDocument: Document | string;
-  public definition: Document;
+export class OpenAPIBackend<D extends Document = Document> {
+  public document: D;
+  public inputDocument: D | string;
+  public definition: D;
   public apiRoot: string;
 
   public initalized: boolean;
@@ -120,14 +143,14 @@ export class OpenAPIBackend {
 
   public securityHandlers: { [name: string]: Handler };
 
-  public router: OpenAPIRouter;
-  public validator: OpenAPIValidator;
+  public router: OpenAPIRouter<D>;
+  public validator: OpenAPIValidator<D>;
 
   /**
    * Creates an instance of OpenAPIBackend.
    *
    * @param opts - constructor options
-   * @param {Document | string} opts.definition - the OpenAPI definition, file path or Document object
+   * @param {D | string} opts.definition - the OpenAPI definition, file path or Document object
    * @param {string} opts.apiRoot - the root URI of the api. all paths are matched relative to apiRoot
    * @param {boolean} opts.strict - strict mode, throw errors or warn on OpenAPI spec validation errors (default: false)
    * @param {boolean} opts.quick - quick startup, attempts to optimise startup; might break things (default: false)
@@ -141,7 +164,7 @@ export class OpenAPIBackend {
    * @param {{ [operationId: string]: Handler | ErrorHandler }} opts.handlers - Operation handlers to be registered
    * @memberof OpenAPIBackend
    */
-  constructor(opts: Options) {
+  constructor(opts: Options<D>) {
     const optsWithDefaults = {
       apiRoot: '/',
       validate: true,
@@ -163,8 +186,8 @@ export class OpenAPIBackend {
     this.shouldValidateDefinition = optsWithDefaults.shouldValidateDefinition;
     this.validate = optsWithDefaults.validate;
     this.ignoreTrailingSlashes = optsWithDefaults.ignoreTrailingSlashes;
-    this.handlers = { ...optsWithDefaults.handlers }; // Copy to avoid mutating passed object
-    this.securityHandlers = { ...optsWithDefaults.securityHandlers }; // Copy to avoid mutating passed object
+    this.handlers = { ...optsWithDefaults.handlers } as { [operationId: string]: Handler }; // Copy to avoid mutating passed object
+    this.securityHandlers = { ...optsWithDefaults.securityHandlers } as { [operationId: string]: Handler }; // Copy to avoid mutating passed object
     this.ajvOpts = optsWithDefaults.ajvOpts;
     this.customizeAjv = optsWithDefaults.customizeAjv;
   }
@@ -201,18 +224,17 @@ export class OpenAPIBackend {
       if (this.dereferenceDoc) {
         // optionally dereference the document into definition (make sure not to copy)
         if (typeof this.inputDocument === 'string') {
-            this.definition = (await dereference(this.inputDocument)) as Document;
-          } else {
-            this.definition = (await dereference(this.document || this.inputDocument)) as Document;
-          }
+          this.definition = (await dereference(this.inputDocument)) as D;
+        } else {
+          this.definition = (await dereference(this.document || this.inputDocument)) as D;
+        }
       } else {
         if (typeof this.inputDocument === 'string') {
-          throw Error('Cannot avoid dereference with a basepath')
+          throw Error('Cannot avoid dereference with a basepath');
         } else {
           this.definition = this.document || this.inputDocument;
         }
       }
-
     } catch (err) {
       if (this.strict) {
         // in strict-mode, fail hard and re-throw the error
@@ -266,7 +288,7 @@ export class OpenAPIBackend {
    * @memberof OpenAPIBackend
    */
   public async loadDocument() {
-    this.document = (await parseJSONSchema(this.inputDocument)) as Document;
+    this.document = (await parseJSONSchema(this.inputDocument)) as D;
     return this.document;
   }
 
@@ -281,17 +303,17 @@ export class OpenAPIBackend {
    * @returns {Promise} handler return value
    * @memberof OpenAPIBackend
    */
-  public async handleRequest(req: Request, ...handlerArgs: any[]) {
+  public async handleRequest(req: Request, ...handlerArgs: any[]): Promise<any> {
     if (!this.initalized) {
       // auto-initalize if not yet initalized
       await this.init();
     }
 
     // initalize context object with a reference to this OpenAPIBackend instance
-    const context: Partial<Context> = { api: this };
+    const context: Partial<Context<any, any, any, any, any, D>> = { api: this };
 
     // handle request with correct handler
-    const response = await (async () => {
+    const response: any = await (async () => {
       // parse request
       context.request = this.router.parseRequest(req);
 
@@ -300,14 +322,14 @@ export class OpenAPIBackend {
         context.operation = this.router.matchOperation(req, true);
       } catch (err: any) {
         let handler = this.handlers['404'] || this.handlers['notFound'];
-        if (err.message.startsWith('405')) {
+        if (err instanceof Error && err.message.startsWith('405')) {
           // 405 method not allowed
           handler = this.handlers['405'] || this.handlers['methodNotAllowed'] || handler;
         }
         if (!handler) {
           throw err;
         }
-        return handler(context as Context, ...handlerArgs);
+        return handler(context as Context<D>, ...handlerArgs);
       }
 
       const operationId = context.operation.operationId as string;
@@ -323,21 +345,19 @@ export class OpenAPIBackend {
       // run registered security handlers for all security requirements
       const securityHandlerResults: SecurityHandlerResults = {};
       await Promise.all(
-        securitySchemes.map((name) => {
+        securitySchemes.map(async (name) => {
           securityHandlerResults[name] = undefined;
           if (this.securityHandlers[name]) {
             // return a promise that will set the security handler result
-            return (
-              Promise.resolve()
-                .then(async () => await this.securityHandlers[name](context as Context, ...handlerArgs))
-                .then((result) => {
-                  securityHandlerResults[name] = result;
-                })
-                // save error as result, if thrown
-                .catch((error) => {
-                  securityHandlerResults[name] = { error };
-                })
-            );
+            return await Promise.resolve()
+              .then(() => this.securityHandlers[name](context as Context<D>, ...handlerArgs))
+              .then((result: unknown) => {
+                securityHandlerResults[name] = result;
+              })
+              // save rejected error as result, if thrown
+              .catch((error: unknown) => {
+                securityHandlerResults[name] = { error };
+              });
           } else {
             // if no handler is found for scheme, set to undefined
             securityHandlerResults[name] = undefined;
@@ -351,19 +371,32 @@ export class OpenAPIBackend {
          * Security Requirement Objects that contain multiple schemes require
          * that all schemes MUST be satisfied for a request to be authorized.
          */
-        for (const requirement of _.keys(requirementObject)) {
-          if (!Boolean(securityHandlerResults[requirement]) || Boolean(securityHandlerResults[requirement]?.error)) {
+        for (const requirement of Object.keys(requirementObject)) {
+          const requirementResult = securityHandlerResults[requirement];
+
+          // falsy return values are treated as auth fail
+          if (Boolean(requirementResult) === false) {
+            return false;
+          }
+
+          // handle error object passed earlier
+          if (
+            typeof requirementResult === 'object' &&
+            Object.keys(requirementResult).includes('error') &&
+            Object.keys(requirementResult).length === 1
+          ) {
             return false;
           }
         }
         return true;
       });
+
       /*
        * When a list of Security Requirement Objects is defined on the Open API
        * object or Operation Object, only one of Security Requirement Objects
        * in the list needs to be satisfied to authorize the request.
        */
-      const authorized = _.includes(requirementsSatisfied, true);
+      const authorized = requirementsSatisfied.some((securityResult) => securityResult === true);
 
       // add the results and authorized state to the context object
       context.security = {
@@ -375,14 +408,14 @@ export class OpenAPIBackend {
       if (!authorized && securityRequirements.length > 0) {
         const unauthorizedHandler: Handler = this.handlers['unauthorizedHandler'];
         if (unauthorizedHandler) {
-          return unauthorizedHandler(context as Context, ...handlerArgs);
+          return unauthorizedHandler(context as Context<D>, ...handlerArgs);
         }
       }
 
       // check whether this request should be validated
       const validate =
         typeof this.validate === 'function'
-          ? this.validate(context as Context, ...handlerArgs)
+          ? this.validate(context as Context<D>, ...handlerArgs)
           : Boolean(this.validate);
 
       // validate request
@@ -392,7 +425,7 @@ export class OpenAPIBackend {
         if (context.validation.errors) {
           // 400 request validation fail
           if (validationFailHandler) {
-            return validationFailHandler(context as Context, ...handlerArgs);
+            return validationFailHandler(context as Context<D>, ...handlerArgs);
           }
           // if no validation handler is specified, just ignore it and proceed to route handler
         }
@@ -406,11 +439,11 @@ export class OpenAPIBackend {
         if (!notImplementedHandler) {
           throw Error(`501-notImplemented: ${operationId} no handler registered`);
         }
-        return notImplementedHandler(context as Context, ...handlerArgs);
+        return notImplementedHandler(context as Context<D>, ...handlerArgs);
       }
 
       // handle route
-      return routeHandler(context as Context, ...handlerArgs);
+      return routeHandler(context as Context<D>, ...handlerArgs);
     }).bind(this)();
 
     // post response handler
@@ -418,7 +451,7 @@ export class OpenAPIBackend {
     if (postResponseHandler) {
       // pass response to postResponseHandler
       context.response = response;
-      return postResponseHandler(context as Context, ...handlerArgs);
+      return postResponseHandler(context as Context<D>, ...handlerArgs);
     }
 
     // return response
@@ -558,12 +591,12 @@ export class OpenAPIBackend {
 
     // resolve status code
     const { responses } = operation;
-    let response: OpenAPIV3_1.ResponseObject;
+    let response: PickVersionElement<D, OpenAPIV3.ResponseObject, OpenAPIV3_1.ResponseObject>;
 
     if (opts.code && responses[opts.code]) {
       // 1. check for provided code opt (default: 200)
       status = Number(opts.code);
-      response = responses[opts.code] as OpenAPIV3_1.ResponseObject;
+      response = responses[opts.code] as typeof response;
     } else {
       // 2. check for a default response
       const res = OpenAPIUtils.findDefaultStatusCodeMatch(responses);
@@ -588,7 +621,11 @@ export class OpenAPIBackend {
 
     // if example argument was provided, locate and return its value
     if (opts.example && examples) {
-      const exampleObject = examples[opts.example] as OpenAPIV3_1.ExampleObject;
+      const exampleObject = examples[opts.example] as PickVersionElement<
+        D,
+        OpenAPIV3.ExampleObject,
+        OpenAPIV3_1.ExampleObject
+      >;
       if (exampleObject && exampleObject.value) {
         return { status, mock: exampleObject.value };
       }
@@ -601,7 +638,11 @@ export class OpenAPIBackend {
 
     // pick the first example from examples
     if (examples) {
-      const exampleObject = examples[Object.keys(examples)[0]] as OpenAPIV3_1.ExampleObject;
+      const exampleObject = examples[Object.keys(examples)[0]] as PickVersionElement<
+        D,
+        OpenAPIV3.ExampleObject,
+        OpenAPIV3_1.ExampleObject
+      >;
       return { status, mock: exampleObject.value };
     }
 
@@ -617,10 +658,10 @@ export class OpenAPIBackend {
   /**
    * Validates this.document, which is the parsed OpenAPI document. Throws an error if validation fails.
    *
-   * @returns {Document} parsed document
+   * @returns {D} parsed document
    * @memberof OpenAPIBackend
    */
-  public validateDefinition() {
+  public validateDefinition(): D {
     const validateOpenAPI = new OpenAPISchemaValidator({ version: 3 });
     const { errors } = validateOpenAPI.validate(this.document);
     if (errors.length) {
@@ -635,10 +676,10 @@ export class OpenAPIBackend {
    *
    * Alias for: router.getOperations()
    *
-   * @returns {Operation[]}
+   * @returns {Operation<D>[]}
    * @memberof OpenAPIBackend
    */
-  public getOperations(): Operation[] {
+  public getOperations(): Operation<D>[] {
     return this.router.getOperations();
   }
 
@@ -648,10 +689,10 @@ export class OpenAPIBackend {
    * Alias for: router.getOperation(operationId)
    *
    * @param {string} operationId
-   * @returns {Operation}
+   * @returns {Operation<D>}
    * @memberof OpenAPIBackend
    */
-  public getOperation(operationId: string): Operation | undefined {
+  public getOperation(operationId: string): Operation<D> | undefined {
     return this.router.getOperation(operationId);
   }
 
@@ -661,10 +702,10 @@ export class OpenAPIBackend {
    * Alias for: router.matchOperation(req)
    *
    * @param {Request} req
-   * @returns {Operation}
+   * @returns {Operation<D>}
    * @memberof OpenAPIBackend
    */
-  public matchOperation(req: Request): Operation | undefined {
+  public matchOperation(req: Request): Operation<D> | undefined {
     return this.router.matchOperation(req);
   }
 
@@ -677,11 +718,11 @@ export class OpenAPIBackend {
    * Alias for validator.validateRequest
    *
    * @param {Request} req - request to validate
-   * @param {(Operation | string)} [operation]
+   * @param {(Operation<D> | string)} [operation]
    * @returns {ValidationStatus}
    * @memberof OpenAPIBackend
    */
-  public validateRequest(req: Request, operation?: Operation | string): ValidationResult {
+  public validateRequest(req: Request, operation?: Operation<D> | string): ValidationResult {
     return this.validator.validateRequest(req, operation);
   }
 
@@ -693,12 +734,12 @@ export class OpenAPIBackend {
    * Alias for validator.validateResponse
    *
    * @param {*} res - response to validate
-   * @param {(Operation | string)} [operation]
+   * @param {(Operation<D> | string)} [operation]
    * @param {number} status
    * @returns {ValidationStatus}
    * @memberof OpenAPIBackend
    */
-  public validateResponse(res: any, operation: Operation | string, statusCode?: number): ValidationResult {
+  public validateResponse(res: any, operation: Operation<D> | string, statusCode?: number): ValidationResult {
     return this.validator.validateResponse(res, operation, statusCode);
   }
 
@@ -710,7 +751,7 @@ export class OpenAPIBackend {
    * Alias for validator.validateResponseHeaders
    *
    * @param {*} headers - response to validate
-   * @param {(Operation | string)} [operation]
+   * @param {(Operation<D> | string)} [operation]
    * @param {number} [opts.statusCode]
    * @param {SetMatchType} [opts.setMatchType] - one of 'any', 'superset', 'subset', 'exact'
    * @returns {ValidationStatus}
@@ -718,7 +759,7 @@ export class OpenAPIBackend {
    */
   public validateResponseHeaders(
     headers: any,
-    operation: Operation | string,
+    operation: Operation<D> | string,
     opts?: {
       statusCode?: number;
       setMatchType?: SetMatchType;

@@ -1,10 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { OpenAPIRouter, Operation } from './router';
 import { OpenAPIBackend, Context } from './backend';
-import { OpenAPIV3_1 } from 'openapi-types';
+import { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
 
 const headers = { accept: 'application/json' };
 
-const responses: OpenAPIV3_1.ResponsesObject = {
+const responses: OpenAPIV3.ResponsesObject & OpenAPIV3_1.ResponsesObject = {
   200: { description: 'ok' },
 };
 
@@ -60,7 +62,7 @@ const queryFilter: OpenAPIV3_1.ParameterObject = {
 };
 
 const definition: OpenAPIV3_1.Document = {
-  openapi: '3.0.0',
+  openapi: '3.1.0',
   info: {
     title: 'api',
     version: '1.0.0',
@@ -160,7 +162,7 @@ describe('OpenAPIRouter', () => {
 
     test('parses path parameters', () => {
       const request = { path: '/pets/123', method: 'get', headers };
-      const operation = api.getOperation('getPetById');
+      const operation = api.getOperation('getPetById')!;
 
       const parsedRequest = api.parseRequest(request, operation);
       expect(parsedRequest.params).toEqual({ id: '123' });
@@ -195,7 +197,7 @@ describe('OpenAPIRouter', () => {
       const encoded = encodeURI(JSON.stringify(filterValue));
       const request = { path: `/pets?filter=${encoded}`, method: 'get', headers };
 
-      const operation = api.getOperation('getPets') as Operation;
+      const operation = api.getOperation('getPets')!;
       const parsedRequest = api.parseRequest(request, operation);
 
       expect(parsedRequest.query.filter).toEqual(filterValue);
@@ -209,7 +211,55 @@ describe('OpenAPIRouter', () => {
 
     test('parses query string arrays when style=form, explode=false', () => {
       const request = { path: '/pets?limit=10,20', method: 'get', headers };
-      const operation = api.getOperation('createPet') as Operation;
+      const operation = api.getOperation('createPet')!;
+      operation.parameters = [
+        {
+          in: 'query',
+          name: 'limit',
+          style: 'form',
+          explode: false,
+        },
+      ];
+
+      const parsedRequest = api.parseRequest(request, operation);
+      expect(parsedRequest.query).toEqual({ limit: ['10', '20'] });
+    });
+
+    test('parses query parameter arrays when style=form, explode=false', () => {
+      const request = { path: '/pets', query: { limit: '10,20' }, method: 'get', headers };
+      const operation = api.getOperation('createPet')!;
+      operation.parameters = [
+        {
+          in: 'query',
+          name: 'limit',
+          style: 'form',
+          explode: false,
+        },
+      ];
+
+      const parsedRequest = api.parseRequest(request, operation);
+      expect(parsedRequest.query).toEqual({ limit: ['10', '20'] });
+    });
+
+    test('parses query string arrays with encoded commas when style=form, explode=false', () => {
+      const request = { path: '/pets?limit=10%2C20', method: 'get', headers };
+      const operation = api.getOperation('createPet')!;
+      operation.parameters = [
+        {
+          in: 'query',
+          name: 'limit',
+          style: 'form',
+          explode: false,
+        },
+      ];
+
+      const parsedRequest = api.parseRequest(request, operation);
+      expect(parsedRequest.query).toEqual({ limit: ['10', '20'] });
+    });
+
+    test('parses query parameter arrays with encoded commas when style=form, explode=false', () => {
+      const request = { path: '/pets', query: { limit: '10%2C20' }, method: 'get', headers };
+      const operation = api.getOperation('createPet')!;
       operation.parameters = [
         {
           in: 'query',
@@ -225,7 +275,23 @@ describe('OpenAPIRouter', () => {
 
     test('parses query string arrays when style=spaceDelimited, explode=false', () => {
       const request = { path: '/pets?limit=10%2020', method: 'get', headers };
-      const operation = api.getOperation('createPet') as Operation;
+      const operation = api.getOperation('createPet')!;
+      operation.parameters = [
+        {
+          in: 'query',
+          name: 'limit',
+          style: 'spaceDelimited',
+          explode: false,
+        },
+      ];
+
+      const parsedRequest = api.parseRequest(request, operation);
+      expect(parsedRequest.query).toEqual({ limit: ['10', '20'] });
+    });
+
+    test('parses query parameter arrays when style=spaceDelimited, explode=false', () => {
+      const request = { path: '/pets', query: { limit: '10%2020' }, method: 'get', headers };
+      const operation = api.getOperation('createPet')!;
       operation.parameters = [
         {
           in: 'query',
@@ -241,7 +307,23 @@ describe('OpenAPIRouter', () => {
 
     test('parses query string arrays when style=pipeDelimited, explode=false', () => {
       const request = { path: '/pets?limit=10|20', method: 'get', headers };
-      const operation = api.getOperation('createPet') as Operation;
+      const operation = api.getOperation('createPet')!;
+      operation.parameters = [
+        {
+          in: 'query',
+          name: 'limit',
+          style: 'pipeDelimited',
+          explode: false,
+        },
+      ];
+
+      const parsedRequest = api.parseRequest(request, operation);
+      expect(parsedRequest.query).toEqual({ limit: ['10', '20'] });
+    });
+
+    test('parses query parameter arrays when style=pipeDelimited, explode=false', () => {
+      const request = { path: '/pets', query: { limit: '10|20' }, method: 'get', headers };
+      const operation = api.getOperation('createPet')!;
       operation.parameters = [
         {
           in: 'query',
@@ -518,7 +600,7 @@ describe('OpenAPIBackend', () => {
 
     test('handles GET / and passes response to postResponseHandler', async () => {
       const postResponseHandler = jest.fn((c: Context) => c && c.response);
-      await api.register({ postResponseHandler });
+      api.register({ postResponseHandler });
 
       const res = await api.handleRequest({ method: 'GET', path: '/', headers });
       expect(dummyHandlers['apiRoot']).toBeCalled();
@@ -532,7 +614,7 @@ describe('OpenAPIBackend', () => {
 
     test('handles GET /pets and passes response to postResponseHandler', async () => {
       const postResponseHandler = jest.fn((c: Context) => c && c.response);
-      await api.register({ postResponseHandler });
+      api.register({ postResponseHandler });
 
       const res = await api.handleRequest({ method: 'GET', path: '/pets', headers });
       expect(dummyHandlers['getPets']).toBeCalled();
@@ -545,8 +627,8 @@ describe('OpenAPIBackend', () => {
     });
 
     test('handles GET /pets and allows postResponseHandler to intercept response', async () => {
-      const postResponseHandler = jest.fn((ctx) => ({ you: 'have been intercepted' }));
-      await api.register({ postResponseHandler });
+      const postResponseHandler = jest.fn((_ctx) => ({ you: 'have been intercepted' }));
+      api.register({ postResponseHandler });
 
       const res = await api.handleRequest({ method: 'GET', path: '/pets', headers });
       expect(dummyHandlers['getPets']).toBeCalled();

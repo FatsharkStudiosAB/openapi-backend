@@ -1,10 +1,10 @@
 name: CI
 on:
   push:
-    branches: ['master']
-    tags: ['*']
+    branches: ["main"]
+    tags: ["*"]
   pull_request:
-    branches: ['master']
+    branches: ["main"]
 
 jobs:
   test:
@@ -19,20 +19,23 @@ jobs:
           - examples/express-jwt-auth
           - examples/express-ts-mock
           - examples/express-typescript
+          - examples/fastify
           - examples/hapi-typescript
           - examples/koa
           - examples/serverless-framework
           - examples/aws-sam
+          - examples/aws-cdk
     steps:
-      - uses: actions/checkout@v1
-      - uses: actions/setup-node@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v3
         with:
-          node-version: '14'
-      - uses: actions/setup-python@v2
+          node-version: "16"
+      - uses: actions/setup-python@v3
         with:
-          python-version: '3.x'
-      - run: pip install aws-sam-cli
-        if: matrix.project_dir == 'examples/aws-sam'
+          python-version: "3.8"
+      - uses: aws-actions/setup-sam@v2
+        if: matrix.project_dir == 'examples/aws-sam' || matrix.project_dir == 'examples/aws-cdk'
+      - run: npm ci && npm run build
       - run: npm ci
         working-directory: ${{ matrix.project_dir }}
       - run: npm link ../../
@@ -51,9 +54,10 @@ jobs:
     needs:
       - test
     steps:
-      - uses: actions/checkout@v1
-      - uses: actions/setup-node@v1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v3
         with:
+          node-version: "18"
           registry-url: https://registry.npmjs.org/
       - run: npm ci
       - run: npm publish || true
