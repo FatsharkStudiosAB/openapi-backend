@@ -1,24 +1,37 @@
 import * as _ from 'lodash';
-import type { OpenAPIV3_1 } from 'openapi-types';
+import type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
 import bath from 'bath-es5';
 import * as cookie from 'cookie';
 import { parse as parseQuery } from 'qs';
 import { Parameters } from 'bath-es5/_/types';
+import { PickVersionElement } from './backend';
 
 // alias Document to OpenAPIV3_1.Document
-type Document = OpenAPIV3_1.Document;
+type Document = OpenAPIV3_1.Document | OpenAPIV3.Document;
+
+/**
+ * OperationObject
+ * @typedef {(OpenAPIV3_1.OperationObject | OpenAPIV3.OperationObject)} OperationObject
+ */
 
 /**
  * OAS Operation Object containing the path and method so it can be placed in a flat array of operations
  *
  * @export
  * @interface Operation
- * @extends {OpenAPIV3_1.OperationObject}
+ * @extends {OperationObject}
  */
-export interface Operation extends OpenAPIV3_1.OperationObject {
+export type Operation<D extends Document = Document> = PickVersionElement<
+  D,
+  OpenAPIV3.OperationObject,
+  OpenAPIV3_1.OperationObject
+> & {
   path: string;
   method: string;
-}
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyRequestBody = any;
 
 export interface Request {
   method: string;
@@ -31,20 +44,28 @@ export interface Request {
         [key: string]: string | string[];
       }
     | string;
-  body?: any;
+  body?: AnyRequestBody;
 }
 
-export interface ParsedRequest extends Request {
-  params: {
-    [key: string]: string | string[];
-  };
-  cookies: {
-    [key: string]: string | string[];
-  };
-  query: {
-    [key: string]: string | string[];
-  };
-  requestBody: any;
+export type UnknownParams = {
+  [key: string]: string | string[];
+};
+
+export interface ParsedRequest<
+  RequestBody = AnyRequestBody,
+  Params = UnknownParams,
+  Query = UnknownParams,
+  Headers = UnknownParams,
+  Cookies = UnknownParams,
+> {
+  method: string;
+  path: string;
+  requestBody: RequestBody;
+  params: Params;
+  query: Query;
+  headers: Headers;
+  cookies: Cookies;
+  body?: AnyRequestBody;
 }
 
 /**
@@ -53,8 +74,8 @@ export interface ParsedRequest extends Request {
  * @export
  * @class OpenAPIRouter
  */
-export class OpenAPIRouter {
-  public definition: Document;
+export class OpenAPIRouter<D extends Document = Document> {
+  public definition: D;
   public apiRoot: string;
 
   private ignoreTrailingSlashes: boolean;
@@ -63,11 +84,11 @@ export class OpenAPIRouter {
    * Creates an instance of OpenAPIRouter
    *
    * @param opts - constructor options
-   * @param {Document} opts.definition - the OpenAPI definition, file path or Document object
+   * @param {D} opts.definition - the OpenAPI definition, file path or Document object
    * @param {string} opts.apiRoot - the root URI of the api. all paths are matched relative to apiRoot
    * @memberof OpenAPIRouter
    */
-  constructor(opts: { definition: Document; apiRoot?: string; ignoreTrailingSlashes?: boolean }) {
+  constructor(opts: { definition: D; apiRoot?: string; ignoreTrailingSlashes?: boolean }) {
     this.definition = opts.definition;
     this.apiRoot = opts.apiRoot || '/';
     this.ignoreTrailingSlashes = opts.ignoreTrailingSlashes ?? true;
@@ -78,11 +99,11 @@ export class OpenAPIRouter {
    *
    * @param {Request} req
    * @param {boolean} [strict] strict mode, throw error if operation is not found
-   * @returns {Operation }
+   * @returns {Operation<D>}
    * @memberof OpenAPIRouter
    */
-  public matchOperation(req: Request): Operation | undefined;
-  public matchOperation(req: Request, strict: boolean): Operation;
+  public matchOperation(req: Request): Operation<D> | undefined;
+  public matchOperation(req: Request, strict: boolean): Operation<D>;
   public matchOperation(req: Request, strict?: boolean) {
     // normalize request for matching
     req = this.normalizeRequest(req);
@@ -100,16 +121,16 @@ export class OpenAPIRouter {
     const normalizedPath = this.normalizePath(req.path);
 
     // get all operations matching exact path
-    const exactPathMatches = _.filter(this.getOperations(), ({ path }) => path === normalizedPath);
+    const exactPathMatches = this.getOperations().filter(({ path }) => path === normalizedPath);
 
     // check if there's one with correct method and return if found
-    const exactMatch = _.find(exactPathMatches, ({ method }) => method === req.method);
+    const exactMatch = exactPathMatches.find(({ method }) => method === req.method);
     if (exactMatch) {
       return exactMatch;
     }
 
     // check with path templates
-    const templatePathMatches = _.filter(this.getOperations(), ({ path }) => {
+    const templatePathMatches = this.getOperations().filter(({ path }) => {
       // convert openapi path template to a regex pattern i.e. /{id}/ becomes /[^/]+/
       const pathPattern = `^${path.replace(/\{.*?\}/g, '[^/]+')}$`;
       return Boolean(normalizedPath.match(new RegExp(pathPattern, 'g')));
@@ -146,25 +167,30 @@ export class OpenAPIRouter {
   /**
    * Flattens operations into a simple array of Operation objects easy to work with
    *
-   * @returns {Operation[]}
+   * @returns {Operation<D>[]}
    * @memberof OpenAPIRouter
    */
-  public getOperations(): Operation[] {
-    const paths = _.get(this.definition, 'paths', {});
+  public getOperations(): Operation<D>[] {
+    const paths = this.definition?.paths || {};
     return _.chain(paths)
       .entries()
       .flatMap(([path, pathBaseObject]) => {
         const methods = _.pick(pathBaseObject, ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']);
         return _.entries(methods).map(([method, operation]) => {
-          const op = operation as OpenAPIV3_1.OperationObject;
+          const op = operation as Operation<D>;
           return {
             ...op,
             path,
             method,
             // append the path base object's parameters to the operation's parameters
             parameters: [
-              ...((op.parameters as OpenAPIV3_1.ParameterObject[]) || []),
-              ...((pathBaseObject?.parameters as OpenAPIV3_1.ParameterObject[]) || []), // path base object parameters
+              ...((op.parameters as PickVersionElement<D, OpenAPIV3.ParameterObject, OpenAPIV3_1.ParameterObject>[]) ||
+                []),
+              ...((pathBaseObject?.parameters as PickVersionElement<
+                D,
+                OpenAPIV3.ParameterObject,
+                OpenAPIV3_1.ParameterObject
+              >[]) || []), // path base object parameters
             ],
             // operation-specific security requirement override global requirements
             security: op.security || this.definition.security || [],
@@ -178,11 +204,11 @@ export class OpenAPIRouter {
    * Gets a single operation based on operationId
    *
    * @param {string} operationId
-   * @returns {Operation}
+   * @returns {Operation<D>}
    * @memberof OpenAPIRouter
    */
-  public getOperation(operationId: string): Operation | undefined {
-    return _.find(this.getOperations(), { operationId });
+  public getOperation(operationId: string): Operation<D> | undefined {
+    return this.getOperations().find((op) => op.operationId === operationId);
   }
 
   /**
@@ -246,10 +272,11 @@ export class OpenAPIRouter {
    *
    * @export
    * @param {Request} req
+   * @param {Operation<D>} [operation]
    * @param {string} [patbh]
    * @returns {ParsedRequest}
    */
-  public parseRequest(req: Request, operation?: Operation): ParsedRequest {
+  public parseRequest(req: Request, operation?: Operation<D>): ParsedRequest {
     let requestBody = req.body;
     if (req.body && typeof req.body !== 'object') {
       try {
@@ -286,26 +313,33 @@ export class OpenAPIRouter {
       // parse query parameters with specified style for parameter
       for (const queryParam in query) {
         if (query[queryParam]) {
-          const parameter = _.find((operation.parameters as OpenAPIV3_1.ParameterObject[]) || [], {
-            name: queryParam,
-            in: 'query',
-          });
-          if (parameter) {
-            const paramQueryString = query[parameter.name] ?? queryString
+          const parameter = operation.parameters?.find(
+            (param) => !('$ref' in param) && param?.in === 'query' && param?.name === queryParam,
+          ) as PickVersionElement<D, OpenAPIV3.ParameterObject, OpenAPIV3_1.ParameterObject>;
 
+          if (parameter) {
             if (parameter.content && parameter.content['application/json']) {
               query[queryParam] = JSON.parse(query[queryParam]);
-            } else if (parameter.explode === false && paramQueryString) {
-              let commaQueryString = paramQueryString;
+            } else if (parameter.explode === false && queryString) {
+              let commaQueryString = queryString.replace(/%2C/g, ',');
               if (parameter.style === 'spaceDelimited') {
-                commaQueryString = commaQueryString.replace(/\ /g, ',').replace(/\%20/g, ',');
+                commaQueryString = commaQueryString.replace(/ /g, ',').replace(/%20/g, ',');
               }
               if (parameter.style === 'pipeDelimited') {
-                commaQueryString = commaQueryString.replace(/\|/g, ',').replace(/\%7C/g, ',');
+                commaQueryString = commaQueryString.replace(/\|/g, ',').replace(/%7C/g, ',');
               }
               // use comma parsing e.g. &a=1,2,3
-              const commaParsed = parseQuery(`${parameter.name}=${commaQueryString}`, { comma: true });
+              const commaParsed = parseQuery(commaQueryString, { comma: true });
               query[queryParam] = commaParsed[queryParam];
+            } else if (parameter.explode === false) {
+              let decoded = query[queryParam].replace(/%2C/g, ',');
+              if (parameter.style === 'spaceDelimited') {
+                decoded = decoded.replace(/ /g, ',').replace(/%20/g, ',');
+              }
+              if (parameter.style === 'pipeDelimited') {
+                decoded = decoded.replace(/\|/g, ',').replace(/%7C/g, ',');
+              }
+              query[queryParam] = decoded.split(',');
             }
           }
         }

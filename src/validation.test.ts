@@ -3,16 +3,16 @@ import { OpenAPIRouter, OpenAPIValidator } from './index';
 import { OpenAPIV3_1 } from 'openapi-types';
 import { SchemaLike } from 'mock-json-schema';
 import { SetMatchType } from './backend';
-import { dereference } from '@apidevtools/json-schema-ref-parser';
 import * as path from 'path';
-import * as _ from 'lodash';
+import { dereference } from './refparser';
+
 const testsDir = path.join(__dirname, '..', '__tests__');
 const circularRefPath = path.join(testsDir, 'resources', 'refs.openapi.json');
 
 const headers = { accept: 'application/json' };
 
 const meta: OpenAPIV3_1.Document = {
-  openapi: '3.0.0',
+  openapi: '3.1.0',
   info: {
     title: 'api',
     version: '1.0.0',
@@ -43,6 +43,7 @@ const invalidBTree = {
   value: 'not a number',
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let circularRefDefinition: any;
 beforeAll(async () => {
   circularRefDefinition = await dereference(circularRefPath);
@@ -345,6 +346,62 @@ describe.each([{}, { lazyCompileValidators: true }])('OpenAPIValidator with opts
       });
     });
 
+    describe('passes validation for free-form query parameters', () => {
+      const validator = new OpenAPIValidator({
+        definition: {
+          ...meta,
+          paths: {
+            '/pets': {
+              get: {
+                operationId: 'getPetById',
+                responses: { 200: { description: 'ok' } },
+                parameters: [
+                  {
+                    name: 'freeFormInteger',
+                    in: 'query',
+                    schema: {
+                      type: 'object',
+                      // Sets additionalProperties to the schema of the desired free-form query parameters.
+                      additionalProperties: {
+                        type: 'integer',
+                      },
+                    },
+                    style: 'form',
+                  },
+                  {
+                    name: 'freeFormNumber',
+                    in: 'query',
+                    schema: {
+                      type: 'object',
+                      // Sets additionalProperties to the schema of the desired free-form query parameters.
+                      additionalProperties: {
+                        type: 'number',
+                      },
+                    },
+                    style: 'form',
+                  },
+                ],
+              },
+            },
+          },
+        },
+        ...constructorOpts,
+      });
+
+      test('passes validation for free-form schema of integer', async () => {
+        const valid = validator.validateRequest({ path: '/pets?arbitraryKeyInteger=4', method: 'get', headers });
+        expect(valid.errors).toBeFalsy();
+      });
+      test('passes validation for free-form schema of number', async () => {
+        const valid = validator.validateRequest({ path: '/pets?arbitraryKeyNumber=4.7', method: 'get', headers });
+        expect(valid.errors).toBeFalsy();
+      });
+      test(`fails validation for free-form value that's not one of the specified schemas`, async () => {
+        const valid = validator.validateRequest({ path: '/pets?arbitraryKeyString=string', method: 'get', headers });
+        expect(valid.errors).toHaveLength(1);
+      });
+    });
+
     describe('headers', () => {
       const validator = new OpenAPIValidator({
         definition: {
@@ -412,6 +469,7 @@ describe.each([{}, { lazyCompileValidators: true }])('OpenAPIValidator with opts
           age: {
             type: ['integer', 'null'],
           },
+          unknownValue: {}, // this property should accept `any` value, including null
         },
         required: ['name'],
       };
@@ -566,6 +624,25 @@ describe.each([{}, { lazyCompileValidators: true }])('OpenAPIValidator with opts
         });
         expect(valid.errors).toBeFalsy();
       });
+
+      test.each([
+        ['something'], // string
+        [123], // number
+        [{ hello: 'world' }], // object
+        [['1', '2']], // array
+        [null], // null
+      ])('allows %s, when schema is an empty object', (unknownValue: unknown) => {
+        const valid = validator.validateRequest({
+          path: '/pets',
+          method: 'put',
+          headers,
+          body: {
+            name: 'Garfield',
+            unknownValue,
+          },
+        });
+        expect(valid.errors).toBeFalsy();
+      });
     });
   });
 
@@ -627,6 +704,28 @@ describe.each([{}, { lazyCompileValidators: true }])('OpenAPIValidator with opts
                   },
                 },
                 404: {
+                  description: 'pet not found',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          err: { type: 'string' },
+                        },
+                        required: ['err'],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            delete: {
+              operationId: 'deletePetById',
+              responses: {
+                204: {
+                  description: 'a pet',
+                },
+                default: {
                   description: 'pet not found',
                   content: {
                     'application/json': {
@@ -808,6 +907,19 @@ describe.each([{}, { lazyCompileValidators: true }])('OpenAPIValidator with opts
         200,
       );
       expect(valid.errors).toBeTruthy();
+    });
+
+    test('passes validation with valid 204 containing no body when there is a default response', async () => {
+      const valid = validator.validateResponse(
+        null,
+        {
+          method: 'delete',
+          path: '/pets/{id}',
+          operationId: 'deletePetById',
+        },
+        204,
+      );
+      expect(valid.errors).toBeFalsy();
     });
   });
 

@@ -1,13 +1,14 @@
 {
   "compilerOptions": {
-    "strict": true,
-    "target": "es2017",
+    "strict": false,
+    "target": "es2019",
     "module": "commonjs",
     "moduleResolution": "node",
-    "lib": ["es2017"],
+    "lib": ["es2019"],
+    "esModuleInterop": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "noImplicitAny": true,
+    "noImplicitAny": false,
     "strictPropertyInitialization": false,
     "skipLibCheck": true,
     "baseUrl": ".",

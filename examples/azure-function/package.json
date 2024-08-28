@@ -10,12 +10,12 @@
     "test": "jest"
   },
   "dependencies": {
-    "openapi-backend": "^4.0.0"
+    "openapi-backend": "^5.2.0"
   },
   "devDependencies": {
     "axios": "^0.21.1",
     "azure-functions-core-tools": "^2.4.317",
-    "jest": "^23.6.0",
+    "jest": "^29.3.1",
     "wait-on": "^3.2.0"
   }
 }
